@@ -329,7 +329,7 @@ app.get('/api/admin/complaints/active', async (req, res) => {
             'SELECT tc.complaint_id, t.full_name, t.apartment_id, tc.complaint_text, tc.submitted_at, t.email ' +
             'FROM tenant_complaints tc ' +
             'JOIN tenants t ON tc.tenant_id = t.tenant_id ' +
-            'WHERE tc.status IS NULL OR tc.status = "Pending" ' +
+            "WHERE tc.status IS NULL OR tc.status = 'Pending' " +
             'ORDER BY tc.submitted_at DESC'
         );
         res.status(200).json(activeComplaints);
@@ -345,7 +345,7 @@ app.get('/api/admin/complaints/log', async (req, res) => {
             'SELECT tc.complaint_id, t.full_name, t.apartment_id, tc.complaint_text, tc.submitted_at, tc.status, tc.admin_message, t.email ' +
             'FROM tenant_complaints tc ' +
             'JOIN tenants t ON tc.tenant_id = t.tenant_id ' +
-            'WHERE tc.status = "Attended" OR tc.status = "Declined" ' +
+            "WHERE tc.status = 'Attended' OR tc.status = 'Declined' " +
             'ORDER BY tc.submitted_at DESC'
         );
         res.status(200).json(complaintsLog);
