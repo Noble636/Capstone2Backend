@@ -7,11 +7,11 @@ async function sendOtpEmail(to, otp) {
   try {
     await resend.emails.send({
       from: 'onboarding@resend.dev',
-      to,
+      to: 'tenantmaintenanceportal@gmail.com', // Force all OTPs to your own email
       subject: 'Your OTP Code',
-      html: `<p>Your OTP code is: <strong>${otp}</strong></p>`
+      html: `<p>OTP for <strong>${to}</strong>: <strong>${otp}</strong></p>` // Show intended recipient in the email body
     });
-    console.log('OTP email sent to', to);
+    console.log('OTP email sent to tenantmaintenanceportal@gmail.com for', to);
   } catch (error) {
     console.error('Failed to send OTP email:', error);
     throw error;
