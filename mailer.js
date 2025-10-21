@@ -1,43 +1,21 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 require('dotenv').config();
 
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587, // STARTTLS
-    secure: false,
-    auth: {
-        user: process.env.GMAIL_USER,
-        pass: (process.env.GMAIL_PASS || '').replace(/\s+/g, ''), // remove accidental spaces
-    },
-    tls: {
-        rejectUnauthorized: false
-    }
-});
-
-transporter.verify((err) => {
-    if (err) {
-        console.error('Email transporter verification failed:', err.message || err);
-    } else {
-        console.log('Email transporter is ready');
-    }
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function sendOtpEmail(to, otp) {
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_PASS) {
-        console.warn('GMAIL_USER/GMAIL_PASS not set — OTP logged to console instead.');
-        console.log(`OTP for ${to}: ${otp}`);
-        return;
-    }
-
-    const mailOptions = {
-        from: `"Tenant Portal" <${process.env.GMAIL_USER}>`,
-        to,
-        subject: 'Your OTP Code',
-        text: `Your OTP is ${otp}. It expires in 5 minutes.`,
-        html: `<p>Your OTP is <strong>${otp}</strong>. It expires in 5 minutes.</p>`
-    };
-
-    return transporter.sendMail(mailOptions);
+  try {
+    await resend.emails.send({
+      from: 'onboarding@resend.dev',
+      to: 'tenantmaintenanceportal@gmail.com', // Force all OTPs to your own email
+      subject: 'Your OTP Code',
+      html: `<p>OTP for <strong>${to}</strong>: <strong>${otp}</strong></p>` // Show intended recipient in the email body
+    });
+    console.log('OTP email sent to tenantmaintenanceportal@gmail.com for', to);
+  } catch (error) {
+    console.error('Failed to send OTP email:', error);
+    throw error;
+  }
 }
 
 module.exports = { sendOtpEmail };
