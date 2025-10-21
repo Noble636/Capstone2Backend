@@ -1,36 +1,14 @@
-const { Resend } = require('resend');
 const { google } = require('googleapis');
 const nodemailer = require('nodemailer');
 require('dotenv').config();
-
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+// Resend integration removed. Using Gmail OAuth2 or SMTP fallback only.
 const FROM_EMAIL = process.env.EMAIL_FROM || 'onboarding@resend.dev';
 const AUDIT_EMAIL = process.env.AUDIT_EMAIL || 'tenantmaintenanceportal@gmail.com';
 
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 
-async function sendViaResend(recipients, subject, html) {
-  for (const recipient of recipients) {
-    try {
-      console.log(`[mailer] Sending OTP via Resend to=${recipient} from=${FROM_EMAIL}`);
-      const resp = await resend.emails.send({
-        from: FROM_EMAIL,
-        to: recipient,
-        subject,
-        html,
-      });
-      try {
-        console.log(`[mailer] Resend response for ${recipient}:`, JSON.stringify(resp));
-      } catch (e) {
-        console.log('[mailer] Resend response (could not stringify):', resp);
-      }
-    } catch (err) {
-      console.error(`[mailer] Resend failed for ${recipient}:`, err && err.message ? err.message : err);
-      if (err && err.response) console.error('[mailer] Resend error response:', err.response);
-    }
-  }
-}
+// Resend integration removed. Using Gmail OAuth2 or SMTP fallback only.
 
 async function sendViaGmail(recipients, subject, html) {
   const clientId = process.env.GMAIL_CLIENT_ID;
@@ -85,11 +63,7 @@ async function sendOtpEmail(to, otp) {
   const recipients = [to];
   if (AUDIT_EMAIL && AUDIT_EMAIL !== to) recipients.push(AUDIT_EMAIL);
 
-  // Prefer Resend if configured
-  if (resend) {
-    await sendViaResend(recipients, subject, html);
-    return;
-  }
+  // Using Gmail OAuth2 or SMTP fallback only.
 
   // Otherwise try Gmail OAuth2 (nodemailer)
   if (process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN) {

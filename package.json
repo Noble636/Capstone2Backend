@@ -21,7 +21,6 @@
     "googleapis": "^121.0.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.14.1",
-    "nodemailer": "^7.0.9",
-    "resend": "^6.1.0"
+    "nodemailer": "^7.0.9"
   }
 }
