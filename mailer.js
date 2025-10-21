@@ -16,6 +16,7 @@ const SMTP_PASS = process.env.SMTP_PASS;
 
 // Resend integration removed. Using Gmail OAuth2 or SMTP fallback only.
 
+// Use Gmail REST API (gmail.users.messages.send) to avoid relying on SMTP ports.
 async function sendViaGmail(recipients, subject, html) {
   const clientId = process.env.GMAIL_CLIENT_ID;
   const clientSecret = process.env.GMAIL_CLIENT_SECRET;
@@ -28,34 +29,46 @@ async function sendViaGmail(recipients, subject, html) {
   const oAuth2Client = new google.auth.OAuth2(clientId, clientSecret);
   oAuth2Client.setCredentials({ refresh_token: refreshToken });
 
-  let accessToken;
+  // Ensure we have a valid access token
   try {
-    const tokenResponse = await oAuth2Client.getAccessToken();
-    accessToken = tokenResponse && tokenResponse.token ? tokenResponse.token : tokenResponse;
+    await oAuth2Client.getAccessToken();
   } catch (err) {
-    console.error('[mailer] Failed to obtain Gmail access token:', err);
+    console.error('[mailer] Failed to obtain Gmail access token via OAuth2:', err);
     throw err;
   }
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      type: 'OAuth2',
-      user: FROM_EMAIL,
-      clientId,
-      clientSecret,
-      refreshToken,
-      accessToken,
-    },
-  });
+  const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
   for (const recipient of recipients) {
     try {
-      console.log(`[mailer] Sending OTP via Gmail to=${recipient} from=${FROM_EMAIL}`);
-      const info = await transporter.sendMail({ from: FROM_EMAIL, to: recipient, subject, html });
-      console.log(`[mailer] Gmail send response for ${recipient}:`, info && info.messageId ? info.messageId : info);
+      console.log(`[mailer] Sending OTP via Gmail API to=${recipient} from=${FROM_EMAIL}`);
+
+      const messageLines = [];
+      messageLines.push(`From: ${FROM_EMAIL}`);
+      messageLines.push(`To: ${recipient}`);
+      messageLines.push(`Subject: ${subject}`);
+      messageLines.push('MIME-Version: 1.0');
+      messageLines.push('Content-Type: text/html; charset=UTF-8');
+      messageLines.push('');
+      messageLines.push(html);
+
+      const message = messageLines.join('\r\n');
+      const encodedMessage = Buffer.from(message)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      const res = await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: {
+          raw: encodedMessage,
+        },
+      });
+
+      console.log(`[mailer] Gmail API send response for ${recipient}:`, res && res.data && res.data.id ? res.data.id : res);
     } catch (err) {
-      console.error(`[mailer] Gmail send failed for ${recipient}:`, err && err.message ? err.message : err);
+      console.error(`[mailer] Gmail API send failed for ${recipient}:`, err && err.message ? err.message : err);
     }
   }
 }
