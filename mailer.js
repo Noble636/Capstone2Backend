@@ -2,8 +2,14 @@ const { google } = require('googleapis');
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 // Resend integration removed. Using Gmail OAuth2 or SMTP fallback only.
-const FROM_EMAIL = process.env.EMAIL_FROM || 'onboarding@resend.dev';
+const FROM_EMAIL = process.env.EMAIL_FROM || process.env.SMTP_USER || '';
 const AUDIT_EMAIL = process.env.AUDIT_EMAIL || 'tenantmaintenanceportal@gmail.com';
+
+if (!FROM_EMAIL) {
+  console.warn('[mailer] WARNING: EMAIL_FROM or SMTP_USER is not set. Please set EMAIL_FROM to your Gmail address (the account authorized by GMAIL_REFRESH_TOKEN) to send emails.');
+} else {
+  console.log(`[mailer] configured FROM_EMAIL=${FROM_EMAIL}, AUDIT_EMAIL=${AUDIT_EMAIL}`);
+}
 
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
