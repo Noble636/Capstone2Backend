@@ -1,9 +1,80 @@
 const { Resend } = require('resend');
+const { google } = require('googleapis');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FROM_EMAIL = process.env.EMAIL_FROM || 'onboarding@resend.dev';
 const AUDIT_EMAIL = process.env.AUDIT_EMAIL || 'tenantmaintenanceportal@gmail.com';
+
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+
+async function sendViaResend(recipients, subject, html) {
+  for (const recipient of recipients) {
+    try {
+      console.log(`[mailer] Sending OTP via Resend to=${recipient} from=${FROM_EMAIL}`);
+      const resp = await resend.emails.send({
+        from: FROM_EMAIL,
+        to: recipient,
+        subject,
+        html,
+      });
+      try {
+        console.log(`[mailer] Resend response for ${recipient}:`, JSON.stringify(resp));
+      } catch (e) {
+        console.log('[mailer] Resend response (could not stringify):', resp);
+      }
+    } catch (err) {
+      console.error(`[mailer] Resend failed for ${recipient}:`, err && err.message ? err.message : err);
+      if (err && err.response) console.error('[mailer] Resend error response:', err.response);
+    }
+  }
+}
+
+async function sendViaGmail(recipients, subject, html) {
+  const clientId = process.env.GMAIL_CLIENT_ID;
+  const clientSecret = process.env.GMAIL_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error('Gmail OAuth2 credentials are not fully configured');
+  }
+
+  const oAuth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  oAuth2Client.setCredentials({ refresh_token: refreshToken });
+
+  let accessToken;
+  try {
+    const tokenResponse = await oAuth2Client.getAccessToken();
+    accessToken = tokenResponse && tokenResponse.token ? tokenResponse.token : tokenResponse;
+  } catch (err) {
+    console.error('[mailer] Failed to obtain Gmail access token:', err);
+    throw err;
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      type: 'OAuth2',
+      user: FROM_EMAIL,
+      clientId,
+      clientSecret,
+      refreshToken,
+      accessToken,
+    },
+  });
+
+  for (const recipient of recipients) {
+    try {
+      console.log(`[mailer] Sending OTP via Gmail to=${recipient} from=${FROM_EMAIL}`);
+      const info = await transporter.sendMail({ from: FROM_EMAIL, to: recipient, subject, html });
+      console.log(`[mailer] Gmail send response for ${recipient}:`, info && info.messageId ? info.messageId : info);
+    } catch (err) {
+      console.error(`[mailer] Gmail send failed for ${recipient}:`, err && err.message ? err.message : err);
+    }
+  }
+}
 
 async function sendOtpEmail(to, otp) {
   if (!to) throw new Error('Missing recipient `to` for sendOtpEmail');
@@ -11,43 +82,54 @@ async function sendOtpEmail(to, otp) {
   const subject = 'Your OTP Code';
   const html = `<p>OTP for <strong>${to}</strong>: <strong>${otp}</strong></p>`;
 
-  // If Resend is not configured, fallback to console logging
-  if (!resend) {
-    console.warn('RESEND_API_KEY not set — logging OTP instead of sending');
-    console.log(`OTP for ${to}: ${otp}`);
-    console.log(`Audit: ${AUDIT_EMAIL}`);
-    return;
-  }
-
   const recipients = [to];
   if (AUDIT_EMAIL && AUDIT_EMAIL !== to) recipients.push(AUDIT_EMAIL);
 
-  // Send individually to each recipient and log the response/error for diagnostics
-  for (const recipient of recipients) {
+  // Prefer Resend if configured
+  if (resend) {
+    await sendViaResend(recipients, subject, html);
+    return;
+  }
+
+  // Otherwise try Gmail OAuth2 (nodemailer)
+  if (process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN) {
+    await sendViaGmail(recipients, subject, html);
+    return;
+  }
+
+  // If SMTP credentials provided (app password), use SMTP transport as fallback
+  if (SMTP_USER && SMTP_PASS) {
     try {
-      console.log(`[mailer] Sending OTP to=${recipient} from=${FROM_EMAIL}`);
-      const resp = await resend.emails.send({
-        from: FROM_EMAIL,
-        to: recipient,
-        subject,
-        html,
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.SMTP_PORT || '465', 10),
+        secure: (process.env.SMTP_SECURE || 'true') === 'true',
+        auth: {
+          user: SMTP_USER,
+          pass: SMTP_PASS,
+        },
       });
 
-      // resp may be a complex object; stringify safely
-      try {
-        console.log(`[mailer] Resend response for ${recipient}:`, JSON.stringify(resp));
-      } catch (e) {
-        console.log('[mailer] Resend response (could not stringify):', resp);
+      for (const recipient of recipients) {
+        try {
+          console.log(`[mailer] Sending OTP via SMTP to=${recipient} from=${FROM_EMAIL}`);
+          const info = await transporter.sendMail({ from: FROM_EMAIL, to: recipient, subject, html });
+          console.log(`[mailer] SMTP send response for ${recipient}:`, info && info.messageId ? info.messageId : info);
+        } catch (err) {
+          console.error(`[mailer] SMTP send failed for ${recipient}:`, err && err.message ? err.message : err);
+        }
       }
+      return;
     } catch (err) {
-      // Resend SDK errors can contain nested info; log full error for debugging
-      console.error(`[mailer] Failed to send to ${recipient}:`, err && err.message ? err.message : err);
-      if (err && err.response) {
-        console.error('[mailer] Resend error response:', err.response);
-      }
-      // continue to next recipient (audit) so one failure doesn't block the other
+      console.error('[mailer] Failed to create SMTP transporter:', err);
+      // fall through to final log
     }
   }
+
+  // Final fallback: log to console for development
+  console.warn('No email provider configured — logging OTP instead of sending');
+  console.log(`OTP for ${to}: ${otp}`);
+  console.log(`Audit: ${AUDIT_EMAIL}`);
 }
 
 module.exports = { sendOtpEmail };
