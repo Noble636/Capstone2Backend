@@ -211,6 +211,20 @@ app.post('/api/tenant/forgot-password/verify-otp', async (req, res) => {
             return res.status(400).json({ message: 'Invalid or expired OTP' });
         }
 
+        // Consume the OTP and create a short-lived reset grant so the frontend
+        // can call reset-password without sending the OTP itself. This avoids
+        // requiring frontend changes while preventing direct reset without OTP.
+        const grantExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+        try {
+            // delete the used OTP
+            await db.execute('DELETE FROM password_reset_otps WHERE username = ? AND otp = ?', [username, otp]);
+            // create a grant entry (table must exist; see README / migration note)
+            await db.execute('INSERT INTO password_reset_grants (username, expires_at) VALUES (?, ?)', [username, grantExpires]);
+        } catch (err) {
+            console.error('Error creating password reset grant:', err);
+            return handleDatabaseError(res, err);
+        }
+
         res.status(200).json({ message: 'OTP verified successfully' });
     } catch (error) {
         console.error('Error verifying OTP:', error);
@@ -226,19 +240,21 @@ app.post('/api/tenant/forgot-password/reset-password', async (req, res) => {
     }
 
     try {
-        const [otpResults] = await db.execute(
-            'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW()',
+        // Check for a valid reset grant created after OTP verification
+        const [grantResults] = await db.execute(
+            'SELECT * FROM password_reset_grants WHERE username = ? AND expires_at > NOW()',
             [username]
         );
 
-        if (otpResults.length === 0) {
-            return res.status(400).json({ message: 'OTP not verified or expired' });
+        if (grantResults.length === 0) {
+            return res.status(400).json({ message: 'OTP verification required or expired' });
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.execute('UPDATE tenants SET password = ? WHERE username = ?', [hashedPassword, username]);
 
-        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [username]);
+    // consume the grant so it can't be reused
+    await db.execute('DELETE FROM password_reset_grants WHERE username = ?', [username]);
 
         res.status(200).json({ message: 'Password reset successfully' });
     } catch (error) {
@@ -597,6 +613,16 @@ app.post('/api/admin/forgot-password/verify-otp', async (req, res) => {
             return res.status(400).json({ message: 'Invalid or expired OTP.' });
         }
 
+        // Consume OTP and create a short-lived reset grant for admin
+        const grantExpires = new Date(Date.now() + 5 * 60 * 1000);
+        try {
+            await db.execute('DELETE FROM password_reset_otps WHERE username = ? AND otp = ?', [username, otp]);
+            await db.execute('INSERT INTO password_reset_grants (username, expires_at) VALUES (?, ?)', [username, grantExpires]);
+        } catch (err) {
+            console.error('Error creating admin password reset grant:', err);
+            return handleDatabaseError(res, err);
+        }
+
         res.status(200).json({ message: 'OTP verified successfully.' });
     } catch (error) {
         console.error('Error verifying admin OTP:', error);
@@ -612,19 +638,21 @@ app.post('/api/admin/forgot-password/reset-password', async (req, res) => {
     }
 
     try {
-        const [otpResults] = await db.execute(
-            'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW()',
+        // Check for a valid reset grant created after OTP verification
+        const [grantResults] = await db.execute(
+            'SELECT * FROM password_reset_grants WHERE username = ? AND expires_at > NOW()',
             [username]
         );
 
-        if (otpResults.length === 0) {
+        if (grantResults.length === 0) {
             return res.status(400).json({ message: 'OTP verification required or expired.' });
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await db.execute('UPDATE admins SET password = ? WHERE username = ?', [hashedPassword, username]);
 
-        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [username]);
+    // consume the grant so it can't be reused
+    await db.execute('DELETE FROM password_reset_grants WHERE username = ?', [username]);
 
         res.status(200).json({ message: 'Admin password reset successfully!' });
     } catch (error) {
