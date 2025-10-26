@@ -1,7 +1,6 @@
 const { google } = require('googleapis');
 const nodemailer = require('nodemailer');
 require('dotenv').config();
-// Resend integration removed. Using Gmail OAuth2 or SMTP fallback only.
 const FROM_EMAIL = process.env.EMAIL_FROM || process.env.SMTP_USER || '';
 const AUDIT_EMAIL = process.env.AUDIT_EMAIL || 'tenantmaintenanceportal@gmail.com';
 
@@ -14,9 +13,6 @@ if (!FROM_EMAIL) {
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 
-// Resend integration removed. Using Gmail OAuth2 or SMTP fallback only.
-
-// Use Gmail REST API (gmail.users.messages.send) to avoid relying on SMTP ports.
 async function sendViaGmail(recipients, subject, html) {
   const clientId = process.env.GMAIL_CLIENT_ID;
   const clientSecret = process.env.GMAIL_CLIENT_SECRET;
@@ -29,7 +25,6 @@ async function sendViaGmail(recipients, subject, html) {
   const oAuth2Client = new google.auth.OAuth2(clientId, clientSecret);
   oAuth2Client.setCredentials({ refresh_token: refreshToken });
 
-  // Ensure we have a valid access token
   try {
     await oAuth2Client.getAccessToken();
   } catch (err) {
@@ -82,15 +77,11 @@ async function sendOtpEmail(to, otp) {
   const recipients = [to];
   if (AUDIT_EMAIL && AUDIT_EMAIL !== to) recipients.push(AUDIT_EMAIL);
 
-  // Using Gmail OAuth2 or SMTP fallback only.
-
-  // Otherwise try Gmail OAuth2 (nodemailer)
   if (process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN) {
     await sendViaGmail(recipients, subject, html);
     return;
   }
 
-  // If SMTP credentials provided (app password), use SMTP transport as fallback
   if (SMTP_USER && SMTP_PASS) {
     try {
       const transporter = nodemailer.createTransport({
@@ -115,11 +106,8 @@ async function sendOtpEmail(to, otp) {
       return;
     } catch (err) {
       console.error('[mailer] Failed to create SMTP transporter:', err);
-      // fall through to final log
     }
   }
-
-  // Final fallback: log to console for development
   console.warn('No email provider configured — logging OTP instead of sending');
   console.log(`OTP for ${to}: ${otp}`);
   console.log(`Audit: ${AUDIT_EMAIL}`);

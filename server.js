@@ -166,7 +166,6 @@ app.post('/api/tenant/forgot-password/verify-username', async (req, res) => {
             [username, otp, expiresAt]
         );
 
-        // Send OTP to email if available
         let emailResult = null;
         if (tenant.email) {
             try {
@@ -308,7 +307,6 @@ app.put('/api/tenant/complaints/:complaintId', async (req, res) => {
     }
 });
 
-// Delete a tenant complaint by ID
 app.delete('/api/tenant/complaints/:complaintId', async (req, res) => {
     const { complaintId } = req.params;
     try {

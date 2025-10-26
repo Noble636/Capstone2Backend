@@ -1,12 +1,3 @@
-/**
- * Helper to obtain a refresh token using your OAuth client.
- * Usage:
- * 1. Add http://localhost:3000/oauth2callback to your OAuth client's Authorized redirect URIs
- * 2. Fill GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in env or pass via env when running
- * 3. Run: node get_refresh_token.js
- * 4. The script will print the refresh token when you complete the consent in the browser.
- */
-
 const http = require('http');
 const open = require('open');
 const { google } = require('googleapis');
@@ -62,6 +53,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Open this URL in your browser to grant access:\n\n${authUrl}\n`);
   (async () => {
-    try { await open(authUrl); } catch (_) { /* ignore */ }
+    try { await open(authUrl); } catch (_) { }
   })();
 });
