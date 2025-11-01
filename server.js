@@ -566,6 +566,83 @@ app.get('/api/tenant/profile/:tenantId', async (req, res) => {
     }
 });
 
+// Admin profile endpoints: get and update admin account
+app.get('/api/admin/profile/:adminId', async (req, res) => {
+    const { adminId } = req.params;
+    if (!adminId) return res.status(400).json({ message: 'Admin ID is required.' });
+    try {
+        const [rows] = await db.execute('SELECT admin_id, username, full_name, email FROM admins WHERE admin_id = ?', [adminId]);
+        if (rows.length === 0) return res.status(404).json({ message: 'Admin not found.' });
+        res.status(200).json(rows[0]);
+    } catch (err) {
+        console.error('Error fetching admin profile:', err);
+        handleDatabaseError(res, err);
+    }
+});
+
+app.put('/api/admin/profile/:adminId', async (req, res) => {
+    const { adminId } = req.params;
+    const { username, fullName, email, currentPassword, newPassword } = req.body;
+
+    if (!fullName) return res.status(400).json({ message: 'Full name is required.' });
+
+    try {
+        const [admins] = await db.execute('SELECT username, password FROM admins WHERE admin_id = ?', [adminId]);
+        if (admins.length === 0) return res.status(404).json({ message: 'Admin not found.' });
+        const storedUsername = admins[0].username;
+        const storedHashedPassword = admins[0].password;
+
+        const usernameChanged = typeof username === 'string' && username !== storedUsername;
+        const passwordChangeRequested = !!newPassword;
+
+        if ((usernameChanged || passwordChangeRequested) && !currentPassword) {
+            return res.status(401).json({ message: 'Current password is required to change username or password.' });
+        }
+
+        if (currentPassword && (usernameChanged || passwordChangeRequested)) {
+            const passwordMatch = await bcrypt.compare(currentPassword, storedHashedPassword);
+            if (!passwordMatch) return res.status(401).json({ message: 'Invalid current password.' });
+        }
+
+        if (usernameChanged) {
+            const [existing] = await db.execute('SELECT admin_id FROM admins WHERE username = ? AND admin_id != ?', [username, adminId]);
+            if (existing.length > 0) return res.status(409).json({ message: 'Username already taken.' });
+        }
+
+        const setParts = ['full_name = ?', 'email = ?'];
+        const params = [fullName, email];
+
+        if (usernameChanged) {
+            setParts.unshift('username = ?');
+            params.unshift(username);
+        }
+
+        if (passwordChangeRequested) {
+            const hashedPassword = await bcrypt.hash(newPassword, 10);
+            setParts.push('password = ?');
+            params.push(hashedPassword);
+        }
+
+        const updateQuery = `UPDATE admins SET ${setParts.join(', ')} WHERE admin_id = ?`;
+        params.push(adminId);
+
+        const [result] = await db.execute(updateQuery, params);
+        if (result.affectedRows === 0) return res.status(404).json({ message: 'Admin not found or no changes made.' });
+
+        let forceLogout = false;
+        if (usernameChanged) {
+            await db.execute('UPDATE password_reset_otps SET username = ? WHERE username = ?', [username, storedUsername]);
+            await db.execute('UPDATE password_reset_grants SET username = ? WHERE username = ?', [username, storedUsername]);
+            forceLogout = true;
+        }
+
+        res.status(200).json({ message: 'Admin account updated successfully!', forceLogout });
+    } catch (err) {
+        console.error('Error updating admin profile:', err);
+        handleDatabaseError(res, err);
+    }
+});
+
 app.put('/api/tenant/profile/:tenantId', async (req, res) => {
     const { tenantId } = req.params;
     const { username, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber, currentPassword, newPassword } = req.body;
