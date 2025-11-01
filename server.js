@@ -568,43 +568,77 @@ app.get('/api/tenant/profile/:tenantId', async (req, res) => {
 
 app.put('/api/tenant/profile/:tenantId', async (req, res) => {
     const { tenantId } = req.params;
-    const { fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber, currentPassword, newPassword } = req.body;
+    const { username, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber, currentPassword, newPassword } = req.body;
 
     if (!fullName || !contactNumber || !apartmentId) {
         return res.status(400).json({ message: 'Full Name, Contact Number, and Apartment ID are required.' });
     }
 
     try {
-        let updateQuery = 'UPDATE tenants SET full_name = ?, email = ?, contact_number = ?, apartment_id = ?, emergency_contact = ?, emergency_contact_number = ?';
-        let queryParams = [fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber];
+        // Fetch current tenant data (username + password) for verification
+        const [tenants] = await db.execute('SELECT username, password FROM tenants WHERE tenant_id = ?', [tenantId]);
+        if (tenants.length === 0) {
+            return res.status(404).json({ message: 'Tenant not found.' });
+        }
+        const storedUsername = tenants[0].username;
+        const storedHashedPassword = tenants[0].password;
 
-        if (newPassword) {
-            const [tenants] = await db.execute('SELECT password FROM tenants WHERE tenant_id = ?', [tenantId]);
-            if (tenants.length === 0) {
-                return res.status(404).json({ message: 'Tenant not found.' });
-            }
-            const storedHashedPassword = tenants[0].password;
+        // If username is changing or password is changing, require currentPassword and verify it
+        const usernameChanged = typeof username === 'string' && username !== storedUsername;
+        const passwordChangeRequested = !!newPassword;
 
+        if ((usernameChanged || passwordChangeRequested) && !currentPassword) {
+            return res.status(401).json({ message: 'Current password is required to change username or password.' });
+        }
+
+        if (currentPassword && (usernameChanged || passwordChangeRequested)) {
             const passwordMatch = await bcrypt.compare(currentPassword, storedHashedPassword);
             if (!passwordMatch) {
                 return res.status(401).json({ message: 'Invalid current password.' });
             }
-
-            const hashedPassword = await bcrypt.hash(newPassword, 10);
-            updateQuery += ', password = ?';
-            queryParams.push(hashedPassword);
         }
 
-        updateQuery += ' WHERE tenant_id = ?';
-        queryParams.push(tenantId);
+        // If username changed, ensure uniqueness
+        if (usernameChanged) {
+            const [existing] = await db.execute('SELECT tenant_id FROM tenants WHERE username = ? AND tenant_id != ?', [username, tenantId]);
+            if (existing.length > 0) {
+                return res.status(409).json({ message: 'Username already taken.' });
+            }
+        }
 
-        const [result] = await db.execute(updateQuery, queryParams);
+        // Build dynamic update
+        const setParts = ['full_name = ?', 'email = ?', 'contact_number = ?', 'apartment_id = ?', 'emergency_contact = ?', 'emergency_contact_number = ?'];
+        const params = [fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber];
+
+        if (usernameChanged) {
+            setParts.unshift('username = ?'); // put username first
+            params.unshift(username);
+        }
+
+        if (passwordChangeRequested) {
+            const hashedPassword = await bcrypt.hash(newPassword, 10);
+            setParts.push('password = ?');
+            params.push(hashedPassword);
+        }
+
+        const updateQuery = `UPDATE tenants SET ${setParts.join(', ')} WHERE tenant_id = ?`;
+        params.push(tenantId);
+
+        const [result] = await db.execute(updateQuery, params);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Tenant not found or no changes made.' });
         }
 
-        res.status(200).json({ message: 'Account updated successfully!' });
+        // Keep helper tables consistent: update password_reset_otps and password_reset_grants if username changed
+        let forceLogout = false;
+        if (usernameChanged) {
+            await db.execute('UPDATE password_reset_otps SET username = ? WHERE username = ?', [username, storedUsername]);
+            await db.execute('UPDATE password_reset_grants SET username = ? WHERE username = ?', [username, storedUsername]);
+            forceLogout = true;
+        }
+
+        res.status(200).json({ message: 'Account updated successfully!', forceLogout });
     } catch (error) {
         console.error('Error updating tenant profile:', error);
         handleDatabaseError(res, error);
