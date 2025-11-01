@@ -4,6 +4,11 @@ const dotenv = require('dotenv');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+
+// Use memory storage so files are stored in RAM then persisted to DB as BLOBs.
+// This avoids writing to the local filesystem (ephemeral on Render).
+const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } }); // max 3 files, 5MB each
 
 dotenv.config();
 
@@ -246,7 +251,8 @@ app.post('/api/tenant/forgot-password/reset-password', async (req, res) => {
     }
 });
 
-app.post('/api/tenant/submit-complaint', async (req, res) => {
+app.post('/api/tenant/submit-complaint', upload.array('images', 3), async (req, res) => {
+    // Accepts multipart/form-data. Fields: tenantId, complaint, date. Optional files field name: images (up to 3)
     const { tenantId, complaint, date } = req.body;
 
     if (!tenantId || !complaint || !date) {
@@ -254,11 +260,28 @@ app.post('/api/tenant/submit-complaint', async (req, res) => {
     }
 
     try {
-        await db.execute(
+        // Insert complaint
+        const [result] = await db.execute(
             'INSERT INTO tenant_complaints (tenant_id, complaint_text, complaint_date, status, admin_message) VALUES (?, ?, ?, ?, ?)',
             [tenantId, complaint, date, 'Pending', null]
         );
-        res.status(201).json({ message: 'Complaint submitted successfully' });
+
+        const complaintId = result.insertId;
+
+        // If images were uploaded, persist them to DB as LONGBLOBs
+        if (req.files && req.files.length > 0) {
+            const files = req.files.slice(0, 3); // enforce 3-file max
+            let order = 1;
+            for (const file of files) {
+                await db.execute(
+                    'INSERT INTO complaint_images (complaint_id, image_data, mime_type, filename, image_order) VALUES (?, ?, ?, ?, ?)',
+                    [complaintId, file.buffer, file.mimetype || 'image/jpeg', file.originalname || null, order]
+                );
+                order++;
+            }
+        }
+
+        res.status(201).json({ message: 'Complaint submitted successfully', complaintId });
     } catch (error) {
         console.error('Error submitting complaint:', error);
         handleDatabaseError(res, error);
@@ -280,6 +303,29 @@ app.get('/api/tenant/complaints', async (req, res) => {
             'WHERE tc.tenant_id = ? ORDER BY tc.submitted_at DESC',
             [tenantId]
         );
+        // Attach images (base64 data URIs) for each complaint
+        if (complaints.length > 0) {
+            const ids = complaints.map(c => c.complaint_id);
+            const placeholders = ids.map(() => '?').join(',');
+            const [imagesRows] = await db.execute(
+                `SELECT complaint_id, image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id IN (${placeholders}) ORDER BY image_order ASC`,
+                ids
+            );
+
+            const imagesByComplaint = {};
+            for (const row of imagesRows) {
+                const buf = row.image_data;
+                const base64 = buf ? buf.toString('base64') : null;
+                const dataUri = base64 ? `data:${row.mime_type || 'image/jpeg'};base64,${base64}` : null;
+                if (!imagesByComplaint[row.complaint_id]) imagesByComplaint[row.complaint_id] = [];
+                imagesByComplaint[row.complaint_id].push({ image_id: row.image_id, filename: row.filename, mime_type: row.mime_type, dataUri, image_order: row.image_order });
+            }
+
+            for (const c of complaints) {
+                c.images = imagesByComplaint[c.complaint_id] || [];
+            }
+        }
+
         res.status(200).json(complaints);
     } catch (error) {
         console.error('Error fetching tenant complaints:', error);
@@ -287,7 +333,7 @@ app.get('/api/tenant/complaints', async (req, res) => {
     }
 });
 
-app.put('/api/tenant/complaints/:complaintId', async (req, res) => {
+app.put('/api/tenant/complaints/:complaintId', upload.array('images', 3), async (req, res) => {
     const { complaintId } = req.params;
     const { complaintText } = req.body;
 
@@ -300,6 +346,23 @@ app.put('/api/tenant/complaints/:complaintId', async (req, res) => {
             'UPDATE tenant_complaints SET complaint_text = ? WHERE complaint_id = ?',
             [complaintText, complaintId]
         );
+
+        // If new images were uploaded, replace existing ones
+        if (req.files && req.files.length > 0) {
+            // Delete old images (cascade not applied since we want to replace)
+            await db.execute('DELETE FROM complaint_images WHERE complaint_id = ?', [complaintId]);
+
+            const files = req.files.slice(0, 3);
+            let order = 1;
+            for (const file of files) {
+                await db.execute(
+                    'INSERT INTO complaint_images (complaint_id, image_data, mime_type, filename, image_order) VALUES (?, ?, ?, ?, ?)',
+                    [complaintId, file.buffer, file.mimetype || 'image/jpeg', file.originalname || null, order]
+                );
+                order++;
+            }
+        }
+
         res.status(200).json({ message: 'Complaint updated successfully.' });
     } catch (error) {
         console.error('Error updating tenant complaint:', error);
@@ -330,6 +393,24 @@ app.get('/api/admin/complaints/active', async (req, res) => {
             "WHERE tc.status IS NULL OR tc.status = 'Pending' " +
             'ORDER BY tc.submitted_at DESC'
         );
+        // attach images
+        if (activeComplaints.length > 0) {
+            const ids = activeComplaints.map(c => c.complaint_id);
+            const placeholders = ids.map(() => '?').join(',');
+            const [imagesRows] = await db.execute(
+                `SELECT complaint_id, image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id IN (${placeholders}) ORDER BY image_order ASC`,
+                ids
+            );
+            const imagesByComplaint = {};
+            for (const row of imagesRows) {
+                const base64 = row.image_data ? row.image_data.toString('base64') : null;
+                const dataUri = base64 ? `data:${row.mime_type || 'image/jpeg'};base64,${base64}` : null;
+                if (!imagesByComplaint[row.complaint_id]) imagesByComplaint[row.complaint_id] = [];
+                imagesByComplaint[row.complaint_id].push({ image_id: row.image_id, filename: row.filename, mime_type: row.mime_type, dataUri, image_order: row.image_order });
+            }
+            for (const c of activeComplaints) c.images = imagesByComplaint[c.complaint_id] || [];
+        }
+
         res.status(200).json(activeComplaints);
     } catch (error) {
         console.error('Error fetching active complaints for admin:', error);
@@ -346,6 +427,23 @@ app.get('/api/admin/complaints/log', async (req, res) => {
             "WHERE tc.status = 'Attended' OR tc.status = 'Declined' " +
             'ORDER BY tc.submitted_at DESC'
         );
+        if (complaintsLog.length > 0) {
+            const ids = complaintsLog.map(c => c.complaint_id);
+            const placeholders = ids.map(() => '?').join(',');
+            const [imagesRows] = await db.execute(
+                `SELECT complaint_id, image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id IN (${placeholders}) ORDER BY image_order ASC`,
+                ids
+            );
+            const imagesByComplaint = {};
+            for (const row of imagesRows) {
+                const base64 = row.image_data ? row.image_data.toString('base64') : null;
+                const dataUri = base64 ? `data:${row.mime_type || 'image/jpeg'};base64,${base64}` : null;
+                if (!imagesByComplaint[row.complaint_id]) imagesByComplaint[row.complaint_id] = [];
+                imagesByComplaint[row.complaint_id].push({ image_id: row.image_id, filename: row.filename, mime_type: row.mime_type, dataUri, image_order: row.image_order });
+            }
+            for (const c of complaintsLog) c.images = imagesByComplaint[c.complaint_id] || [];
+        }
+
         res.status(200).json(complaintsLog);
     } catch (error) {
         console.error('Error fetching complaints log for admin:', error);

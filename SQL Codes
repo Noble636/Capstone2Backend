@@ -1,0 +1,119 @@
+-- create DB and use it
+CREATE DATABASE IF NOT EXISTS defaultdb;
+USE defaultdb;
+
+-- Admins
+CREATE TABLE IF NOT EXISTS `admins` (
+  `admin_id` int(11) NOT NULL AUTO_INCREMENT,
+  `full_name` varchar(255) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `username` varchar(100) NOT NULL UNIQUE,
+  `password` varchar(255) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`admin_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Tenants
+CREATE TABLE IF NOT EXISTS `tenants` (
+  `tenant_id` int(11) NOT NULL AUTO_INCREMENT,
+  `username` varchar(255) NOT NULL UNIQUE,
+  `email` varchar(255) DEFAULT NULL,
+  `password` varchar(255) NOT NULL,
+  `full_name` varchar(255) NOT NULL,
+  `contact_number` varchar(20) DEFAULT NULL,
+  `apartment_id` varchar(255) DEFAULT NULL,
+  `emergency_contact` varchar(255) DEFAULT NULL,
+  `emergency_contact_number` varchar(20) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Tenant complaints
+CREATE TABLE IF NOT EXISTS `tenant_complaints` (
+  `complaint_id` int(11) NOT NULL AUTO_INCREMENT,
+  `tenant_id` int(11) NOT NULL,
+  `complaint_text` text NOT NULL,
+  `complaint_date` date NOT NULL,
+  `submitted_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `status` varchar(50) DEFAULT 'Pending',
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `admin_message` text DEFAULT NULL,
+  PRIMARY KEY (`complaint_id`),
+  KEY `tenant_id` (`tenant_id`),
+  CONSTRAINT `tenant_complaints_ibfk_1` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`tenant_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Complaint admin actions
+CREATE TABLE IF NOT EXISTS `complaint_admin_actions` (
+  `action_id` int(11) NOT NULL AUTO_INCREMENT,
+  `complaint_id` int(11) NOT NULL,
+  `admin_id` int(11) DEFAULT NULL,
+  `action_type` varchar(50) NOT NULL,
+  `old_status` varchar(50) DEFAULT 'Pending',
+  `new_status` varchar(50) NOT NULL,
+  `action_message` text DEFAULT NULL,
+  `action_timestamp` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`action_id`),
+  KEY `complaint_id` (`complaint_id`),
+  KEY `admin_id` (`admin_id`),
+  CONSTRAINT `complaint_admin_actions_ibfk_1` FOREIGN KEY (`complaint_id`) REFERENCES `tenant_complaints` (`complaint_id`) ON DELETE CASCADE,
+  CONSTRAINT `complaint_admin_actions_ibfk_2` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`admin_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Visitor logs (includes purpose column)
+CREATE TABLE IF NOT EXISTS `visitor_logs` (
+  `log_id` int(11) NOT NULL AUTO_INCREMENT,
+  `tenant_id` int(11) NOT NULL,
+  `apartment_id` varchar(255) NOT NULL,
+  `unit_owner_name` varchar(255) NOT NULL,
+  `visitor_names` text NOT NULL,
+  `purpose` varchar(255) DEFAULT NULL,
+  `visit_date` date NOT NULL,
+  `time_in` time NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`log_id`),
+  KEY `tenant_id` (`tenant_id`),
+  CONSTRAINT `visitor_logs_ibfk_1` FOREIGN KEY (`tenant_id`) REFERENCES `tenants` (`tenant_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Password reset OTPs
+CREATE TABLE IF NOT EXISTS `password_reset_otps` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `username` varchar(255) NOT NULL,
+  `otp` varchar(10) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `is_verified` tinyint(1) DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `username` (`username`),
+  KEY `expires_at` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Password reset grants (new table used by server.js)
+CREATE TABLE IF NOT EXISTS `password_reset_grants` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `username` varchar(255) NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `username_idx` (`username`),
+  KEY `expires_at_idx` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Complaint images: store up to 3 images per complaint as BLOBs so files are persisted in DB (avoids ephemeral filesystem issues)
+CREATE TABLE IF NOT EXISTS `complaint_images` (
+  `image_id` int(11) NOT NULL AUTO_INCREMENT,
+  `complaint_id` int(11) NOT NULL,
+  `image_data` LONGBLOB NOT NULL,
+  `mime_type` varchar(100) DEFAULT 'image/jpeg',
+  `filename` varchar(255) DEFAULT NULL,
+  `image_order` tinyint(1) DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`image_id`),
+  KEY `complaint_id_idx` (`complaint_id`),
+  CONSTRAINT `complaint_images_ibfk_1` FOREIGN KEY (`complaint_id`) REFERENCES `tenant_complaints` (`complaint_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Notes:
+-- - Store images as LONGBLOB and serve them as base64 data URLs from the backend.
+-- - Enforce the 3-image limit on the application layer (frontend + backend upload limits).
