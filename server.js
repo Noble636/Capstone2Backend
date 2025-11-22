@@ -5,10 +5,7 @@ const bcrypt = require('bcrypt');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-
-// Use memory storage so files are stored in RAM then persisted to DB as BLOBs.
-// This avoids writing to the local filesystem (ephemeral on Render).
-const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } }); // max 3 files, 5MB each
+const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } });
 
 dotenv.config();
 
@@ -252,7 +249,6 @@ app.post('/api/tenant/forgot-password/reset-password', async (req, res) => {
 });
 
 app.post('/api/tenant/submit-complaint', upload.array('images', 3), async (req, res) => {
-    // Accepts multipart/form-data. Fields: tenantId, complaint, date. Optional files field name: images (up to 3)
     const { tenantId, complaint, date } = req.body;
 
     if (!tenantId || !complaint || !date) {
@@ -260,17 +256,14 @@ app.post('/api/tenant/submit-complaint', upload.array('images', 3), async (req, 
     }
 
     try {
-        // Insert complaint
         const [result] = await db.execute(
             'INSERT INTO tenant_complaints (tenant_id, complaint_text, complaint_date, status, admin_message) VALUES (?, ?, ?, ?, ?)',
             [tenantId, complaint, date, 'Pending', null]
         );
 
         const complaintId = result.insertId;
-
-        // If images were uploaded, persist them to DB as LONGBLOBs
         if (req.files && req.files.length > 0) {
-            const files = req.files.slice(0, 3); // enforce 3-file max
+            const files = req.files.slice(0, 3);
             let order = 1;
             for (const file of files) {
                 await db.execute(
@@ -303,7 +296,6 @@ app.get('/api/tenant/complaints', async (req, res) => {
             'WHERE tc.tenant_id = ? ORDER BY tc.submitted_at DESC',
             [tenantId]
         );
-        // Attach images (base64 data URIs) for each complaint
         if (complaints.length > 0) {
             const ids = complaints.map(c => c.complaint_id);
             const placeholders = ids.map(() => '?').join(',');
@@ -347,9 +339,7 @@ app.put('/api/tenant/complaints/:complaintId', upload.array('images', 3), async 
             [complaintText, complaintId]
         );
 
-        // If new images were uploaded, replace existing ones
         if (req.files && req.files.length > 0) {
-            // Delete old images (cascade not applied since we want to replace)
             await db.execute('DELETE FROM complaint_images WHERE complaint_id = ?', [complaintId]);
 
             const files = req.files.slice(0, 3);
@@ -393,7 +383,6 @@ app.get('/api/admin/complaints/active', async (req, res) => {
             "WHERE tc.status IS NULL OR tc.status = 'Pending' " +
             'ORDER BY tc.submitted_at DESC'
         );
-        // attach images
         if (activeComplaints.length > 0) {
             const ids = activeComplaints.map(c => c.complaint_id);
             const placeholders = ids.map(() => '?').join(',');
@@ -566,7 +555,6 @@ app.get('/api/tenant/profile/:tenantId', async (req, res) => {
     }
 });
 
-// Admin profile endpoints: get and update admin account
 app.get('/api/admin/profile/:adminId', async (req, res) => {
     const { adminId } = req.params;
     if (!adminId) return res.status(400).json({ message: 'Admin ID is required.' });
@@ -652,15 +640,12 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
     }
 
     try {
-        // Fetch current tenant data (username + password) for verification
         const [tenants] = await db.execute('SELECT username, password FROM tenants WHERE tenant_id = ?', [tenantId]);
         if (tenants.length === 0) {
             return res.status(404).json({ message: 'Tenant not found.' });
         }
         const storedUsername = tenants[0].username;
         const storedHashedPassword = tenants[0].password;
-
-        // If username is changing or password is changing, require currentPassword and verify it
         const usernameChanged = typeof username === 'string' && username !== storedUsername;
         const passwordChangeRequested = !!newPassword;
 
@@ -674,8 +659,6 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
                 return res.status(401).json({ message: 'Invalid current password.' });
             }
         }
-
-        // If username changed, ensure uniqueness
         if (usernameChanged) {
             const [existing] = await db.execute('SELECT tenant_id FROM tenants WHERE username = ? AND tenant_id != ?', [username, tenantId]);
             if (existing.length > 0) {
@@ -683,12 +666,11 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
             }
         }
 
-        // Build dynamic update
         const setParts = ['full_name = ?', 'email = ?', 'contact_number = ?', 'apartment_id = ?', 'emergency_contact = ?', 'emergency_contact_number = ?'];
         const params = [fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber];
 
         if (usernameChanged) {
-            setParts.unshift('username = ?'); // put username first
+            setParts.unshift('username = ?');
             params.unshift(username);
         }
 
@@ -707,7 +689,6 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
             return res.status(404).json({ message: 'Tenant not found or no changes made.' });
         }
 
-        // Keep helper tables consistent: update password_reset_otps and password_reset_grants if username changed
         let forceLogout = false;
         if (usernameChanged) {
             await db.execute('UPDATE password_reset_otps SET username = ? WHERE username = ?', [username, storedUsername]);

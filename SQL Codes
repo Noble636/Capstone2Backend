@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS `complaint_admin_actions` (
   CONSTRAINT `complaint_admin_actions_ibfk_2` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`admin_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Visitor logs (includes purpose column)
+-- Visitor logs
 CREATE TABLE IF NOT EXISTS `visitor_logs` (
   `log_id` int(11) NOT NULL AUTO_INCREMENT,
   `tenant_id` int(11) NOT NULL,
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS `password_reset_otps` (
   KEY `expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
--- Password reset grants (new table used by server.js)
+-- Password reset grants
 CREATE TABLE IF NOT EXISTS `password_reset_grants` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `username` varchar(255) NOT NULL,
@@ -113,7 +113,3 @@ CREATE TABLE IF NOT EXISTS `complaint_images` (
   KEY `complaint_id_idx` (`complaint_id`),
   CONSTRAINT `complaint_images_ibfk_1` FOREIGN KEY (`complaint_id`) REFERENCES `tenant_complaints` (`complaint_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- Notes:
--- - Store images as LONGBLOB and serve them as base64 data URLs from the backend.
--- - Enforce the 3-image limit on the application layer (frontend + backend upload limits).
