@@ -108,5 +108,13 @@ npm run build
 - Backend: add and run tests as configured (Jest/Mocha) if present.
 
 ## Contact
-Project authors listed above.
+For questions or support, contact any of the project team members:
+
+- Danyael Kaye C. Apil — `klmnopq1221@gmail.com`
+- Jacques Lynn Toledo — `jaiddes6@gmail.com`
+- Shane B. Salonga — `shanesalonga736@gmail.com`
+- John Peter C. Gonzales — `pedromeh21@gmail.com`
+- John Nikko B. Arangorin — `nikkoarangorin004@gmail.com`
+
+For general inquiries, use any of the emails above; response times may vary.
 
