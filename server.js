@@ -64,7 +64,7 @@ const db = mysql.createPool({
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
-    port: process.env.DB_PORT,
+    port: process.env.DB_PORT
 });
 
 const handleDatabaseError = (res, err) => {
@@ -127,37 +127,11 @@ app.post('/api/admin/login', async (req, res) => {
 
         if (passwordMatch) {
             res.status(200).json({ message: 'Admin login successful!', adminId: admin.admin_id, fullName: admin.full_name });
-        try {
-            const encryptedUsername = encryptDeterministic(username);
-            const encryptedEmail = encryptDeterministic(email);
-            const [existingAdmin] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
-            if (existingAdmin.length > 0) {/* Lines 72-73 omitted */}
-
-            const hashedPassword = await bcrypt.hash(password, 10);
-            const hashedAdminToken = await bcrypt.hash(adminToken, 10);
-            const [result] = await db.execute(
-                'INSERT INTO admins (full_name, email, username, password, admin_token) VALUES (?, ?, ?, ?, ?)',
-                [fullName, encryptedEmail, encryptedUsername, hashedPassword, hashedAdminToken]
-            );
-
-            res.status(201).json({ message: 'Admin account created successfully!' });
-        } catch (error) {
-            console.error('Error during admin registration:', error);
-            handleDatabaseError(res, error);
+        } else {
+            res.status(401).json({ message: 'Invalid username or password.' });
         }
-        if (existingUser.length > 0) {
-            return res.status(409).json({ message: 'Username already exists' });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const [result] = await db.execute(
-            'INSERT INTO tenants (username, password, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [username, hashedPassword, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber]
-        );
-
-        res.status(201).json({ message: 'Tenant registered successfully', tenantId: result.insertId });
     } catch (error) {
-        console.error('Error during registration:', error);
+        console.error('Error during admin login:', error);
         handleDatabaseError(res, error);
     }
 });
@@ -522,33 +496,14 @@ app.put('/api/admin/complaints/:complaintId', async (req, res) => {
                 [complaintId, adminId, 'Status Update', oldStatus, status, adminMessage]
             );
             await db.query('COMMIT');
-            res.status(200).json({ message: `Complaint ${complaintId} marked as ${status}.` });
-    try {
-        const encryptedUsername = encryptDeterministic(username);
-        const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
-
-        if (admins.length === 0) {
-            return res.status(401).json({ message: 'Invalid username or password.' });
-        }
-
-        const admin = admins[0];
-        const passwordMatch = await bcrypt.compare(password, admin.password);
-
-        if (passwordMatch) {
-            res.status(200).json({ message: 'Admin login successful!', adminId: admin.admin_id, fullName: admin.full_name });
+        res.status(200).json({ message: `Complaint ${complaintId} marked as ${status}.` });
         } else {
-            res.status(401).json({ message: 'Invalid username or password.' });
+            await db.query('ROLLBACK');
+            res.status(500).json({ message: 'Failed to update complaint status.' });
         }
     } catch (error) {
-        console.error('Error during admin login:', error);
-        handleDatabaseError(res, error);
-    }
-            'INSERT INTO visitor_logs (tenant_id, apartment_id, unit_owner_name, visitor_names, purpose, visit_date, time_in) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [tenantId, apartmentId, fullName, visitorNames, purpose || null, visitDate, timeIn]
-        );
-        res.status(201).json({ message: 'Visitor log submitted successfully!', logId: result.insertId });
-    } catch (error) {
-        console.error('Error submitting visitor log:', error);
+        await db.query('ROLLBACK');
+        console.error('Error updating complaint status:', error);
         handleDatabaseError(res, error);
     }
 });
