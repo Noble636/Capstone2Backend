@@ -948,7 +948,7 @@ app.post('/api/tenant/register', async (req, res) => {
         const encryptedEmergencyContact = emergencyContact ? encrypt(emergencyContact) : null;
         const encryptedEmergencyContactNumber = emergencyContactNumber ? encrypt(emergencyContactNumber) : null;
 
-        // Check if username already exists
+        // Check if username already exists (search by encrypted username)
         const [existingTenant] = await db.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
         if (existingTenant.length > 0) {
             console.warn('[REGISTER] Username already exists:', username);
