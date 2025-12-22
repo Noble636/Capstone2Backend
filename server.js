@@ -914,32 +914,6 @@ app.post('/api/admin/verify-admin-token', async (req, res) => {
     }
 });
 
-app.post('/api/tenant/register', async (req, res) => {
-    const { username, password, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber } = req.body;
-
-    if (!username || !password || !fullName || !email || !apartmentId) {
-        return res.status(400).json({ message: 'Required fields are missing.' });
-    }
-
-    try {
-        // Check if username already exists
-        const [existingTenant] = await db.execute('SELECT * FROM tenants WHERE username = ?', [username]);
-        if (existingTenant.length > 0) {
-            return res.status(409).json({ message: 'Username already exists.' });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-        await db.execute(
-            'INSERT INTO tenants (username, password, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [username, hashedPassword, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber]
-        );
-
-        res.status(201).json({ message: 'Tenant registered successfully!' });
-    } catch (error) {
-        console.error('Error during tenant registration:', error);
-        handleDatabaseError(res, error);
-    }
-});
 
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
