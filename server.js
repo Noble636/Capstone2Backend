@@ -628,6 +628,7 @@ app.put('/api/admin/profile/:adminId', async (req, res) => {
             params.push(hashedPassword);
         }
         if (adminToken) {
+            console.log('Updating admin token for adminId:', adminId, 'New token:', adminToken);
             const hashedAdminToken = await bcrypt.hash(adminToken, 10);
             setParts.push('admin_token = ?');
             params.push(hashedAdminToken);
