@@ -93,8 +93,9 @@ app.post('/api/admin/login', async (req, res) => {
         return res.status(400).json({ message: 'Username and password are required.' });
     }
 
-    try {
-        const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [username]);
+        try {
+            const encryptedUsername = encrypt(username);
+            const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
 
         if (admins.length === 0) {
             return res.status(401).json({ message: 'Invalid username or password.' });
