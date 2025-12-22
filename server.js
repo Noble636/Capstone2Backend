@@ -883,6 +883,28 @@ app.delete('/api/admin/tenants/:tenantId', async (req, res) => {
     }
 });
 
+app.post('/api/admin/verify-admin-token', async (req, res) => {
+    const { adminId, adminToken } = req.body;
+    if (!adminId || !adminToken) {
+        return res.status(400).json({ valid: false, message: 'Admin ID and token required.' });
+    }
+    try {
+        const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
+        if (rows.length === 0) {
+            return res.status(404).json({ valid: false, message: 'Admin not found.' });
+        }
+        const isValid = await bcrypt.compare(adminToken, rows[0].admin_token);
+        if (isValid) {
+            return res.json({ valid: true });
+        } else {
+            return res.json({ valid: false, message: 'Invalid admin token.' });
+        }
+    } catch (err) {
+        console.error('Error verifying admin token:', err);
+        res.status(500).json({ valid: false, message: 'Server error.' });
+    }
+});
+
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
