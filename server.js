@@ -10,6 +10,18 @@ const crypto = require('crypto');
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012';
 const IV_LENGTH = 16;
 
+// Deterministic encryption for username/email (fixed IV)
+function encryptDeterministic(text) {
+    if (!text) return '';
+    // Use a fixed IV for deterministic encryption (e.g., all zeros)
+    const iv = Buffer.alloc(IV_LENGTH, 0);
+    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    return encrypted;
+}
+
+// Standard encryption for other fields (random IV)
 function encrypt(text) {
     if (!text) return '';
     let iv = crypto.randomBytes(IV_LENGTH);
@@ -17,6 +29,15 @@ function encrypt(text) {
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     return iv.toString('hex') + ':' + encrypted;
+}
+
+function decryptDeterministic(encrypted) {
+    if (!encrypted) return '';
+    const iv = Buffer.alloc(IV_LENGTH, 0);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
 }
 
 function decrypt(text) {
@@ -106,24 +127,24 @@ app.post('/api/admin/login', async (req, res) => {
 
         if (passwordMatch) {
             res.status(200).json({ message: 'Admin login successful!', adminId: admin.admin_id, fullName: admin.full_name });
-        } else {
-            res.status(401).json({ message: 'Invalid username or password.' });
+        try {
+            const encryptedUsername = encryptDeterministic(username);
+            const encryptedEmail = encryptDeterministic(email);
+            const [existingAdmin] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
+            if (existingAdmin.length > 0) {/* Lines 72-73 omitted */}
+
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const hashedAdminToken = await bcrypt.hash(adminToken, 10);
+            const [result] = await db.execute(
+                'INSERT INTO admins (full_name, email, username, password, admin_token) VALUES (?, ?, ?, ?, ?)',
+                [fullName, encryptedEmail, encryptedUsername, hashedPassword, hashedAdminToken]
+            );
+
+            res.status(201).json({ message: 'Admin account created successfully!' });
+        } catch (error) {
+            console.error('Error during admin registration:', error);
+            handleDatabaseError(res, error);
         }
-    } catch (error) {
-        console.error('Error during admin login:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.post('/api/tenant/register', async (req, res) => {
-    const { username, password, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber } = req.body;
-
-    if (!username || !password || !fullName) {
-        return res.status(400).json({ message: 'Username, password, and full name are required' });
-    }
-
-    try {
-        const [existingUser] = await db.execute('SELECT * FROM tenants WHERE username = ?', [username]);
         if (existingUser.length > 0) {
             return res.status(409).json({ message: 'Username already exists' });
         }
@@ -502,26 +523,26 @@ app.put('/api/admin/complaints/:complaintId', async (req, res) => {
             );
             await db.query('COMMIT');
             res.status(200).json({ message: `Complaint ${complaintId} marked as ${status}.` });
+    try {
+        const encryptedUsername = encryptDeterministic(username);
+        const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
+
+        if (admins.length === 0) {
+            return res.status(401).json({ message: 'Invalid username or password.' });
+        }
+
+        const admin = admins[0];
+        const passwordMatch = await bcrypt.compare(password, admin.password);
+
+        if (passwordMatch) {
+            res.status(200).json({ message: 'Admin login successful!', adminId: admin.admin_id, fullName: admin.full_name });
         } else {
-            await db.query('ROLLBACK');
-            res.status(404).json({ message: `Complaint ${complaintId} not found or no changes made.` });
+            res.status(401).json({ message: 'Invalid username or password.' });
         }
     } catch (error) {
-        await db.query('ROLLBACK');
-        console.error('Error updating complaint status by admin:', error);
+        console.error('Error during admin login:', error);
         handleDatabaseError(res, error);
     }
-});
-
-app.post('/api/tenant/submit-visitor', async (req, res) => {
-    const { tenantId, fullName, apartmentId, visitorNames, visitDate, timeIn, purpose } = req.body;
-
-    if (!tenantId || !fullName || !apartmentId || !visitorNames || !visitDate || !timeIn) {
-        return res.status(400).json({ message: 'All visitor log fields are required.' });
-    }
-
-    try {
-        const [result] = await db.execute(
             'INSERT INTO visitor_logs (tenant_id, apartment_id, unit_owner_name, visitor_names, purpose, visit_date, time_in) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [tenantId, apartmentId, fullName, visitorNames, purpose || null, visitDate, timeIn]
         );
@@ -589,8 +610,8 @@ app.get('/api/admin/profile/:adminId', async (req, res) => {
         const [rows] = await db.execute('SELECT admin_id, username, full_name, email FROM admins WHERE admin_id = ?', [adminId]);
         if (rows.length === 0) return res.status(404).json({ message: 'Admin not found.' });
         const admin = rows[0];
-        admin.username = decrypt(admin.username);
-        admin.email = decrypt(admin.email);
+        admin.username = decryptDeterministic(admin.username);
+        admin.email = decryptDeterministic(admin.email);
         res.status(200).json(admin);
     } catch (err) {
         console.error('Error fetching admin profile:', err);
@@ -611,7 +632,7 @@ app.put('/api/admin/profile/:adminId', async (req, res) => {
         const storedHashedPassword = admins[0].password;
 
         // Decrypt stored username for comparison
-        const decryptedStoredUsername = decrypt(storedUsername);
+        const decryptedStoredUsername = decryptDeterministic(storedUsername);
         const usernameChanged = typeof username === 'string' && username !== decryptedStoredUsername;
         const passwordChangeRequested = !!newPassword;
 
@@ -626,12 +647,12 @@ app.put('/api/admin/profile/:adminId', async (req, res) => {
 
         // Encrypt username and email before updating
         if (usernameChanged) {
-            username = encrypt(username);
+            username = encryptDeterministic(username);
         } else {
             username = storedUsername;
         }
         if (email) {
-            email = encrypt(email);
+            email = encryptDeterministic(email);
         }
 
         const setParts = ['full_name = ?', 'email = ?'];
