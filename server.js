@@ -886,9 +886,17 @@ app.delete('/api/admin/tenants/:tenantId', async (req, res) => {
 
 app.post('/api/admin/verify-admin-token', async (req, res) => {
     const { adminId, adminToken } = req.body;
+    const DEVELOPER_TOKEN = 'Token'; // Make sure this matches your hardcoded value
+
     if (!adminId || !adminToken) {
         return res.status(400).json({ valid: false, message: 'Admin ID and token required.' });
     }
+
+    // Allow developer token
+    if (adminToken === DEVELOPER_TOKEN) {
+        return res.json({ valid: true });
+    }
+
     try {
         const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
         if (rows.length === 0) {
