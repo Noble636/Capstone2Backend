@@ -523,7 +523,15 @@ app.get('/api/admin/tenants', async (req, res) => {
             'FROM tenants ' +
             'ORDER BY created_at DESC'
         );
-        res.status(200).json(tenants);
+        // Decrypt sensitive fields for display
+        const decryptedTenants = tenants.map(t => ({
+            ...t,
+            username: t.username ? decryptDeterministic(t.username) : '',
+            email: t.email ? decryptDeterministic(t.email) : '',
+            contact_number: t.contact_number ? decrypt(t.contact_number) : '',
+            emergency_contact_number: t.emergency_contact_number ? decrypt(t.emergency_contact_number) : ''
+        }));
+        res.status(200).json(decryptedTenants);
     } catch (error) {
         console.error('Error fetching tenants for admin:', error);
         handleDatabaseError(res, error);
