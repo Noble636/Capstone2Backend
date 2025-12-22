@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } });
 const crypto = require('crypto');
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'your-32-byte-long-key-goes-here-123456';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012';
 const IV_LENGTH = 16;
 
 function encrypt(text) {
