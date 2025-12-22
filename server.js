@@ -86,8 +86,10 @@ app.post('/api/admin/register', async (req, res) => {
     }
 
     try {
-        const encryptedUsername = encrypt(username);
-        const encryptedEmail = encrypt(email);
+        console.log('[REGISTER] Username:', username);
+        const encryptedUsername = encryptDeterministic(username);
+        console.log('[REGISTER] Encrypted Username:', encryptedUsername);
+        const encryptedEmail = encryptDeterministic(email);
         const [existingAdmin] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
         if (existingAdmin.length > 0) {
             return res.status(409).json({ message: 'Username already exists for an admin account.' });
@@ -115,7 +117,9 @@ app.post('/api/admin/login', async (req, res) => {
     }
 
         try {
-            const encryptedUsername = encrypt(username);
+            console.log('[LOGIN] Username:', username);
+            const encryptedUsername = encryptDeterministic(username);
+            console.log('[LOGIN] Encrypted Username:', encryptedUsername);
             const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
 
         if (admins.length === 0) {
