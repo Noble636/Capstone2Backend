@@ -148,7 +148,13 @@ app.post('/api/tenant/register', async (req, res) => {
     }
 
     try {
-        const [existingUser] = await db.execute('SELECT * FROM tenants WHERE username = ?', [username]);
+        // Encrypt sensitive fields
+        const encryptedUsername = encryptDeterministic(username);
+        const encryptedEmail = encryptDeterministic(email);
+        const encryptedContactNumber = contactNumber ? encrypt(contactNumber) : null;
+        const encryptedEmergencyContactNumber = emergencyContactNumber ? encrypt(emergencyContactNumber) : null;
+
+        const [existingUser] = await db.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
         if (existingUser.length > 0) {
             return res.status(409).json({ message: 'Username already exists' });
         }
@@ -156,7 +162,7 @@ app.post('/api/tenant/register', async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         const [result] = await db.execute(
             'INSERT INTO tenants (username, password, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [username, hashedPassword, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber]
+            [encryptedUsername, hashedPassword, fullName, encryptedEmail, encryptedContactNumber, apartmentId, emergencyContact, encryptedEmergencyContactNumber]
         );
 
         res.status(201).json({ message: 'Tenant registered successfully', tenantId: result.insertId });
@@ -311,7 +317,8 @@ app.post('/api/tenant/login', async (req, res) => {
     }
 
     try {
-        const [tenants] = await db.execute('SELECT tenant_id, username, password, full_name, apartment_id FROM tenants WHERE username = ?', [username]);
+        const encryptedUsername = encryptDeterministic(username);
+        const [tenants] = await db.execute('SELECT tenant_id, username, password, full_name, apartment_id FROM tenants WHERE username = ?', [encryptedUsername]);
         if (tenants.length === 0) {
             return res.status(401).json({ message: 'Invalid username or password.' });
         }
@@ -531,14 +538,20 @@ app.get('/api/tenant/profile/:tenantId', async (req, res) => {
     }
 
     try {
-        const [tenant] = await db.execute(
+        const [tenantRows] = await db.execute(
             'SELECT tenant_id, username, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number, password FROM tenants WHERE tenant_id = ?',
             [tenantId]
         );
-        if (tenant.length === 0) {
+        if (tenantRows.length === 0) {
             return res.status(404).json({ message: 'Tenant not found.' });
         }
-        res.status(200).json(tenant[0]);
+        const tenant = tenantRows[0];
+        // Decrypt sensitive fields for display
+        tenant.username = decryptDeterministic(tenant.username);
+        tenant.email = decryptDeterministic(tenant.email);
+        tenant.contact_number = tenant.contact_number ? decrypt(tenant.contact_number) : '';
+        tenant.emergency_contact_number = tenant.emergency_contact_number ? decrypt(tenant.emergency_contact_number) : '';
+        res.status(200).json(tenant);
     } catch (error) {
         console.error('Error fetching tenant profile:', error);
         handleDatabaseError(res, error);
