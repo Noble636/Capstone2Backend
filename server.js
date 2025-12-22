@@ -923,7 +923,19 @@ app.listen(port, () => {
 app.post('/api/tenant/register', async (req, res) => {
     const { username, password, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber } = req.body;
 
+    // Log the incoming registration request (excluding password)
+    console.log('[REGISTER] Incoming tenant registration:', {
+        username,
+        fullName,
+        email,
+        contactNumber,
+        apartmentId,
+        emergencyContact,
+        emergencyContactNumber
+    });
+
     if (!username || !password || !fullName || !email || !apartmentId) {
+        console.error('[REGISTER] Missing required fields:', { username, passwordPresent: !!password, fullName, email, apartmentId });
         return res.status(400).json({ message: 'Required fields are missing.' });
     }
 
@@ -939,6 +951,7 @@ app.post('/api/tenant/register', async (req, res) => {
         // Check if username already exists
         const [existingTenant] = await db.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
         if (existingTenant.length > 0) {
+            console.warn('[REGISTER] Username already exists:', username);
             return res.status(409).json({ message: 'Username already exists.' });
         }
 
@@ -948,9 +961,10 @@ app.post('/api/tenant/register', async (req, res) => {
             [encryptedUsername, hashedPassword, fullName, encryptedEmail, encryptedContactNumber, apartmentId, encryptedEmergencyContact, encryptedEmergencyContactNumber]
         );
 
+        console.log('[REGISTER] Tenant registered successfully:', username);
         res.status(201).json({ message: 'Tenant registered successfully!' });
     } catch (error) {
-        console.error('Error during tenant registration:', error);
+        console.error('[REGISTER] Error during tenant registration:', error && error.stack ? error.stack : error);
         handleDatabaseError(res, error);
     }
 });
