@@ -65,7 +65,9 @@ app.post('/api/admin/register', async (req, res) => {
     }
 
     try {
-        const [existingAdmin] = await db.execute('SELECT * FROM admins WHERE username = ?', [username]);
+        const encryptedUsername = encrypt(username);
+        const encryptedEmail = encrypt(email);
+        const [existingAdmin] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
         if (existingAdmin.length > 0) {
             return res.status(409).json({ message: 'Username already exists for an admin account.' });
         }
@@ -74,7 +76,7 @@ app.post('/api/admin/register', async (req, res) => {
         const hashedAdminToken = await bcrypt.hash(adminToken, 10);
         const [result] = await db.execute(
             'INSERT INTO admins (full_name, email, username, password, admin_token) VALUES (?, ?, ?, ?, ?)',
-            [fullName, email, username, hashedPassword, hashedAdminToken]
+            [fullName, encryptedEmail, encryptedUsername, hashedPassword, hashedAdminToken]
         );
 
         res.status(201).json({ message: 'Admin account created successfully!' });
@@ -585,7 +587,10 @@ app.get('/api/admin/profile/:adminId', async (req, res) => {
     try {
         const [rows] = await db.execute('SELECT admin_id, username, full_name, email FROM admins WHERE admin_id = ?', [adminId]);
         if (rows.length === 0) return res.status(404).json({ message: 'Admin not found.' });
-        res.status(200).json(rows[0]);
+        const admin = rows[0];
+        admin.username = decrypt(admin.username);
+        admin.email = decrypt(admin.email);
+        res.status(200).json(admin);
     } catch (err) {
         console.error('Error fetching admin profile:', err);
         handleDatabaseError(res, err);
@@ -594,7 +599,7 @@ app.get('/api/admin/profile/:adminId', async (req, res) => {
 
 app.put('/api/admin/profile/:adminId', async (req, res) => {
     const { adminId } = req.params;
-    const { username, fullName, email, currentPassword, newPassword } = req.body;
+    let { username, fullName, email, currentPassword, newPassword, adminToken } = req.body;
 
     if (!fullName) return res.status(400).json({ message: 'Full name is required.' });
 
@@ -604,7 +609,9 @@ app.put('/api/admin/profile/:adminId', async (req, res) => {
         const storedUsername = admins[0].username;
         const storedHashedPassword = admins[0].password;
 
-        const usernameChanged = typeof username === 'string' && username !== storedUsername;
+        // Decrypt stored username for comparison
+        const decryptedStoredUsername = decrypt(storedUsername);
+        const usernameChanged = typeof username === 'string' && username !== decryptedStoredUsername;
         const passwordChangeRequested = !!newPassword;
 
         if ((usernameChanged || passwordChangeRequested) && !currentPassword) {
@@ -616,9 +623,14 @@ app.put('/api/admin/profile/:adminId', async (req, res) => {
             if (!passwordMatch) return res.status(401).json({ message: 'Invalid current password.' });
         }
 
+        // Encrypt username and email before updating
         if (usernameChanged) {
-            const [existing] = await db.execute('SELECT admin_id FROM admins WHERE username = ? AND admin_id != ?', [username, adminId]);
-            if (existing.length > 0) return res.status(409).json({ message: 'Username already taken.' });
+            username = encrypt(username);
+        } else {
+            username = storedUsername;
+        }
+        if (email) {
+            email = encrypt(email);
         }
 
         const setParts = ['full_name = ?', 'email = ?'];
@@ -633,6 +645,11 @@ app.put('/api/admin/profile/:adminId', async (req, res) => {
             const hashedPassword = await bcrypt.hash(newPassword, 10);
             setParts.push('password = ?');
             params.push(hashedPassword);
+        }
+        if (adminToken) {
+            const hashedAdminToken = await bcrypt.hash(adminToken, 10);
+            setParts.push('admin_token = ?');
+            params.push(hashedAdminToken);
         }
 
         const updateQuery = `UPDATE admins SET ${setParts.join(', ')} WHERE admin_id = ?`;
