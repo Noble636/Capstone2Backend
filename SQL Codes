@@ -21,10 +21,10 @@ CREATE TABLE IF NOT EXISTS `tenants` (
   `email` varchar(255) DEFAULT NULL,
   `password` varchar(255) NOT NULL,
   `full_name` varchar(255) NOT NULL,
-  `contact_number` varchar(20) DEFAULT NULL,
+    `contact_number` varchar(30) DEFAULT NULL,
   `apartment_id` varchar(255) DEFAULT NULL,
   `emergency_contact` varchar(255) DEFAULT NULL,
-  `emergency_contact_number` varchar(20) DEFAULT NULL,
+    `emergency_contact_number` varchar(30) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

@@ -140,36 +140,32 @@ app.post('/api/admin/login', async (req, res) => {
     }
 });
 
-app.post('/api/tenant/login', async (req, res) => {
-    const { username, password } = req.body;
+app.post('/api/tenant/register', async (req, res) => {
+    const { username, password, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber } = req.body;
 
-    if (!username || !password) {
-        return res.status(400).json({ message: 'Username and password are required' });
+    if (!username || !password || !fullName) {
+        return res.status(400).json({ message: 'Username, password, and full name are required' });
     }
 
     try {
-        const [tenants] = await db.execute('SELECT tenant_id, username, password, full_name, apartment_id FROM tenants WHERE username = ?', [username]);
-        if (tenants.length === 0) {
-            return res.status(401).json({ message: 'Invalid username or password.' });
+        const [existingUser] = await db.execute('SELECT * FROM tenants WHERE username = ?', [username]);
+        if (existingUser.length > 0) {
+            return res.status(409).json({ message: 'Username already exists' });
         }
 
-        const tenant = tenants[0];
-        const passwordMatch = await bcrypt.compare(password, tenant.password);
-        if (!passwordMatch) {
-            return res.status(401).json({ message: 'Invalid username or password.' });
-        }
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const [result] = await db.execute(
+            'INSERT INTO tenants (username, password, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [username, hashedPassword, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber]
+        );
 
-        res.status(200).json({
-            message: 'Login successful',
-            userId: tenant.tenant_id,
-            fullName: tenant.full_name,
-            apartmentId: tenant.apartment_id,
-        });
+        res.status(201).json({ message: 'Tenant registered successfully', tenantId: result.insertId });
     } catch (error) {
-        console.error('Error during login:', error);
+        console.error('Error during registration:', error);
         handleDatabaseError(res, error);
     }
 });
+
 
 app.post('/api/tenant/forgot-password/verify-username', async (req, res) => {
     const { username } = req.body;
@@ -307,46 +303,33 @@ app.post('/api/tenant/submit-complaint', upload.array('images', 3), async (req, 
     }
 });
 
-app.get('/api/tenant/complaints', async (req, res) => {
-    const tenantId = req.query.tenantId;
+app.post('/api/tenant/login', async (req, res) => {
+    const { username, password } = req.body;
 
-    if (!tenantId) {
-        return res.status(400).json({ message: 'Tenant ID is required to fetch complaints.' });
+    if (!username || !password) {
+        return res.status(400).json({ message: 'Username and password are required' });
     }
 
     try {
-        const [complaints] = await db.execute(
-            'SELECT tc.complaint_id, t.full_name, t.apartment_id, tc.complaint_text, tc.complaint_date, tc.submitted_at, tc.status, tc.admin_message, t.email ' +
-            'FROM tenant_complaints tc ' +
-            'JOIN tenants t ON tc.tenant_id = t.tenant_id ' +
-            'WHERE tc.tenant_id = ? ORDER BY tc.submitted_at DESC',
-            [tenantId]
-        );
-        if (complaints.length > 0) {
-            const ids = complaints.map(c => c.complaint_id);
-            const placeholders = ids.map(() => '?').join(',');
-            const [imagesRows] = await db.execute(
-                `SELECT complaint_id, image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id IN (${placeholders}) ORDER BY image_order ASC`,
-                ids
-            );
-
-            const imagesByComplaint = {};
-            for (const row of imagesRows) {
-                const buf = row.image_data;
-                const base64 = buf ? buf.toString('base64') : null;
-                const dataUri = base64 ? `data:${row.mime_type || 'image/jpeg'};base64,${base64}` : null;
-                if (!imagesByComplaint[row.complaint_id]) imagesByComplaint[row.complaint_id] = [];
-                imagesByComplaint[row.complaint_id].push({ image_id: row.image_id, filename: row.filename, mime_type: row.mime_type, dataUri, image_order: row.image_order });
-            }
-
-            for (const c of complaints) {
-                c.images = imagesByComplaint[c.complaint_id] || [];
-            }
+        const [tenants] = await db.execute('SELECT tenant_id, username, password, full_name, apartment_id FROM tenants WHERE username = ?', [username]);
+        if (tenants.length === 0) {
+            return res.status(401).json({ message: 'Invalid username or password.' });
         }
 
-        res.status(200).json(complaints);
+        const tenant = tenants[0];
+        const passwordMatch = await bcrypt.compare(password, tenant.password);
+        if (!passwordMatch) {
+            return res.status(401).json({ message: 'Invalid username or password.' });
+        }
+
+        res.status(200).json({
+            message: 'Login successful',
+            userId: tenant.tenant_id,
+            fullName: tenant.full_name,
+            apartmentId: tenant.apartment_id,
+        });
     } catch (error) {
-        console.error('Error fetching tenant complaints:', error);
+        console.error('Error during login:', error);
         handleDatabaseError(res, error);
     }
 });
