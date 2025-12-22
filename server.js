@@ -916,7 +916,8 @@ app.post('/api/admin/verify-admin-token', async (req, res) => {
 
 
 app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
+    const baseUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${port}`;
+    console.log(`Server is running on ${baseUrl}`);
 });
 
 app.post('/api/tenant/register', async (req, res) => {
