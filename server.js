@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } });
 const crypto = require('crypto');
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'your-32-byte-long-key-goes-here-123456'; // 32 bytes
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'your-32-byte-long-key-goes-here-123456';
 const IV_LENGTH = 16;
 
 function encrypt(text) {
@@ -58,10 +58,10 @@ const generateOTP = () => {
 const DEVELOPER_TOKEN = 'Token';
 
 app.post('/api/admin/register', async (req, res) => {
-    const { fullName, email, username, password } = req.body;
+    const { fullName, email, username, password, adminToken } = req.body;
 
-    if (!fullName || !email || !username || !password) {
-        return res.status(400).json({ message: 'Full Name, Email, Username, and Password are required.' });
+    if (!fullName || !email || !username || !password || !adminToken) {
+        return res.status(400).json({ message: 'Full Name, Email, Username, Password, and Admin Token are required.' });
     }
 
     try {
@@ -71,9 +71,10 @@ app.post('/api/admin/register', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedAdminToken = await bcrypt.hash(adminToken, 10);
         const [result] = await db.execute(
-            'INSERT INTO admins (full_name, email, username, password) VALUES (?, ?, ?, ?)',
-            [fullName, email, username, hashedPassword]
+            'INSERT INTO admins (full_name, email, username, password, admin_token) VALUES (?, ?, ?, ?, ?)',
+            [fullName, email, username, hashedPassword, hashedAdminToken]
         );
 
         res.status(201).json({ message: 'Admin account created successfully!' });
@@ -727,16 +728,24 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
 });
 
 app.post('/api/admin/forgot-password/verify-token', async (req, res) => {
-    const { developerToken } = req.body;
+    const { developerToken, username } = req.body;
 
     if (!developerToken) {
         return res.status(400).json({ message: 'Developer token is required.' });
     }
 
     if (developerToken === DEVELOPER_TOKEN) {
-        res.status(200).json({ message: 'Developer token verified successfully.' });
+        // allow
+        return res.status(200).json({ message: 'Developer token verified.' });
     } else {
-        res.status(401).json({ message: 'Invalid developer token.' });
+        const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [username]);
+        if (admins.length > 0 && await bcrypt.compare(developerToken, admins[0].admin_token)) {
+            // allow
+            return res.status(200).json({ message: 'Admin token verified.' });
+        } else {
+            // deny
+            return res.status(401).json({ message: 'Invalid developer or admin token.' });
+        }
     }
 });
 
