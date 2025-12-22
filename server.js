@@ -1,3 +1,38 @@
+// Tenant registration: encrypt/hash sensitive fields
+app.post('/api/tenant/register', async (req, res) => {
+    const { username, password, fullName, email, contactNumber, apartmentId, emergencyContact, emergencyContactNumber } = req.body;
+
+    if (!username || !password || !fullName || !email || !apartmentId) {
+        return res.status(400).json({ message: 'Required fields are missing.' });
+    }
+
+    try {
+        // Encrypt username and email deterministically for searchability
+        const encryptedUsername = encryptDeterministic(username);
+        const encryptedEmail = encryptDeterministic(email);
+        // Encrypt contact numbers (not deterministic, not for search)
+        const encryptedContactNumber = contactNumber ? encrypt(contactNumber) : null;
+        const encryptedEmergencyContact = emergencyContact ? encrypt(emergencyContact) : null;
+        const encryptedEmergencyContactNumber = emergencyContactNumber ? encrypt(emergencyContactNumber) : null;
+
+        // Check if username already exists
+        const [existingTenant] = await db.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
+        if (existingTenant.length > 0) {
+            return res.status(409).json({ message: 'Username already exists.' });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await db.execute(
+            'INSERT INTO tenants (username, password, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [encryptedUsername, hashedPassword, fullName, encryptedEmail, encryptedContactNumber, apartmentId, encryptedEmergencyContact, encryptedEmergencyContactNumber]
+        );
+
+        res.status(201).json({ message: 'Tenant registered successfully!' });
+    } catch (error) {
+        console.error('Error during tenant registration:', error);
+        handleDatabaseError(res, error);
+    }
+});
 const express = require('express');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
