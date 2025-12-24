@@ -1078,7 +1078,7 @@ app.get('/api/admin/export-complaints', async (req, res) => {
         );
 
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet('Complaints');
+        const worksheet = workbook.addWorksheet('Tenant Complaints Report'); // <-- Sheet name
 
         worksheet.columns = [
             { header: 'Complaint ID', key: 'complaint_id', width: 15 },
@@ -1093,7 +1093,7 @@ app.get('/api/admin/export-complaints', async (req, res) => {
         complaints.forEach(row => worksheet.addRow(row));
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', 'attachment; filename=complaints_report.xlsx');
+        res.setHeader('Content-Disposition', 'attachment; filename=Tenant Complaints Report.xlsx'); // <-- File name
 
         await workbook.xlsx.write(res);
         res.end();
@@ -1111,7 +1111,7 @@ app.post('/api/admin/export-visitor-logs', async (req, res) => {
   }
   const [logs] = await db.execute('SELECT * FROM visitor_logs');
   const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Visitor Logs');
+  const worksheet = workbook.addWorksheet('Tenant Visitors Reports'); // <-- Sheet name
   worksheet.columns = [
     { header: 'Log ID', key: 'log_id' },
     { header: 'Tenant Owner', key: 'unit_owner_name' },
@@ -1124,14 +1124,14 @@ app.post('/api/admin/export-visitor-logs', async (req, res) => {
   ];
   logs.forEach(log => worksheet.addRow(log));
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', 'attachment; filename=visitor_logs.xlsx');
+  res.setHeader('Content-Disposition', 'attachment; filename=Tenant Visitors Reports.xlsx'); // <-- File name
   await workbook.xlsx.write(res);
   res.end();
 });
 
 app.post('/api/admin/export-accounts', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
-  const adminId = req.body.adminId; // Pass adminId from frontend
+  const adminId = req.body.adminId;
   if (!token || !(await isValidAdminToken(token, adminId))) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -1149,7 +1149,7 @@ app.post('/api/admin/export-accounts', async (req, res) => {
     }));
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Accounts');
+    const worksheet = workbook.addWorksheet('Tenant Accounts Reports'); // <-- Sheet name
     worksheet.columns = [
       { header: 'Tenant ID', key: 'tenant_id', width: 10 },
       { header: 'Username', key: 'username', width: 20 },
@@ -1163,7 +1163,7 @@ app.post('/api/admin/export-accounts', async (req, res) => {
     ];
     decryptedTenants.forEach(row => worksheet.addRow(row));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=accounts.xlsx');
+    res.setHeader('Content-Disposition', 'attachment; filename=Tenant Accounts Reports.xlsx'); // <-- File name
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
