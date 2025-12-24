@@ -1102,3 +1102,75 @@ app.get('/api/admin/export-complaints', async (req, res) => {
         handleDatabaseError(res, error);
     }
 });
+
+app.post('/api/admin/export-visitor-logs', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token || !isValidAdminToken(token)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  // Fetch visitor logs from DB
+  const [logs] = await db.execute('SELECT * FROM visitor_logs');
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Visitor Logs');
+  worksheet.columns = [
+    { header: 'Log ID', key: 'log_id' },
+    { header: 'Tenant Owner', key: 'unit_owner_name' },
+    { header: 'Apartment ID', key: 'apartment_id' },
+    { header: 'Visitor(s)', key: 'visitor_names' },
+    { header: 'Purpose', key: 'purpose' },
+    { header: 'Date of Visit', key: 'visit_date' },
+    { header: 'Time In', key: 'time_in' },
+    { header: 'Time Out', key: 'time_out' }
+  ];
+  logs.forEach(log => worksheet.addRow(log));
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=visitor_logs.xlsx');
+  await workbook.xlsx.write(res);
+  res.end();
+});
+function isValidAdminToken(token) {
+  // Implement your token validation logic here
+  return token === process.env.ADMIN_TOKEN || token === process.env.DEV_TOKEN;
+}
+
+app.post('/api/admin/export-accounts', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token || !isValidAdminToken(token)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const [tenants] = await db.execute(
+      'SELECT tenant_id, username, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number, created_at FROM tenants'
+    );
+    // Decrypt sensitive fields
+    const decryptedTenants = tenants.map(t => ({
+      ...t,
+      username: t.username ? decryptDeterministic(t.username) : '',
+      email: t.email ? decryptDeterministic(t.email) : '',
+      contact_number: t.contact_number ? decrypt(t.contact_number) : '',
+      emergency_contact_number: t.emergency_contact_number ? decrypt(t.emergency_contact_number) : ''
+    }));
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Accounts');
+    worksheet.columns = [
+      { header: 'Tenant ID', key: 'tenant_id', width: 10 },
+      { header: 'Username', key: 'username', width: 20 },
+      { header: 'Full Name', key: 'full_name', width: 25 },
+      { header: 'Email', key: 'email', width: 25 },
+      { header: 'Contact Number', key: 'contact_number', width: 18 },
+      { header: 'Apartment ID', key: 'apartment_id', width: 15 },
+      { header: 'Emergency Contact', key: 'emergency_contact', width: 25 },
+      { header: 'Emergency Contact Number', key: 'emergency_contact_number', width: 20 },
+      { header: 'Created At', key: 'created_at', width: 20 }
+    ];
+    decryptedTenants.forEach(row => worksheet.addRow(row));
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=accounts.xlsx');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Error exporting accounts:', error);
+    handleDatabaseError(res, error);
+  }
+});
