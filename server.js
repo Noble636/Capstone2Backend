@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } });
 const crypto = require('crypto');
+const ExcelJS = require('exceljs');
 dotenv.config();
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012';
@@ -1063,6 +1064,41 @@ app.post('/api/tenant/submit-visitor', async (req, res) => {
         res.status(201).json({ message: 'Visitor log submitted successfully!', logId: result.insertId });
     } catch (error) {
         console.error('Error submitting visitor log:', error);
+        handleDatabaseError(res, error);
+    }
+});
+
+app.get('/api/admin/export-complaints', async (req, res) => {
+    try {
+        const [complaints] = await db.execute(
+            'SELECT tc.complaint_id, t.full_name, t.apartment_id, tc.complaint_text, tc.complaint_date, tc.status, tc.admin_message ' +
+            'FROM tenant_complaints tc ' +
+            'JOIN tenants t ON tc.tenant_id = t.tenant_id ' +
+            'ORDER BY tc.complaint_date DESC'
+        );
+
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Complaints');
+
+        worksheet.columns = [
+            { header: 'Complaint ID', key: 'complaint_id', width: 15 },
+            { header: 'Tenant Name', key: 'full_name', width: 25 },
+            { header: 'Apartment ID', key: 'apartment_id', width: 15 },
+            { header: 'Complaint', key: 'complaint_text', width: 40 },
+            { header: 'Date', key: 'complaint_date', width: 20 },
+            { header: 'Status', key: 'status', width: 15 },
+            { header: 'Admin Message', key: 'admin_message', width: 30 }
+        ];
+
+        complaints.forEach(row => worksheet.addRow(row));
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename=complaints_report.xlsx');
+
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        console.error('Error exporting complaints:', error);
         handleDatabaseError(res, error);
     }
 });
