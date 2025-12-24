@@ -1136,67 +1136,58 @@ app.post('/api/admin/export-accounts', async (req, res) => {
 
   // Validate token: dev token or admin token in DB
   if (!token) {
-    return res.status(401).json({ error: 'Unauthorized: No token provided.' });
+    return res.status(401).json({ message: 'Missing token' });
   }
+
+  // Accept hardcoded dev token or .env DEV_TOKEN
   if (token === DEVELOPER_TOKEN || (process.env.DEV_TOKEN && token === process.env.DEV_TOKEN)) {
-    // Allow dev token
+    // proceed
   } else {
+    // Validate admin token from DB
     if (!adminId) {
-      return res.status(401).json({ error: 'Unauthorized: No adminId provided.' });
+      return res.status(401).json({ message: 'Missing adminId' });
     }
     try {
-      const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
-      if (rows.length === 0) {
-        return res.status(401).json({ error: 'Unauthorized: Admin not found.' });
+      const [rows] = await db.execute('SELECT admin_token FROM admin_accounts WHERE admin_id = ?', [adminId]);
+      if (!rows.length) {
+        return res.status(401).json({ message: 'Admin not found' });
       }
-      const isValid = await bcrypt.compare(token, rows[0].admin_token);
-      if (!isValid) {
-        return res.status(401).json({ error: 'Unauthorized: Invalid admin token.' });
+      const adminTokenHash = rows[0].admin_token;
+      const isMatch = await bcrypt.compare(token, adminTokenHash);
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Invalid token' });
       }
     } catch (err) {
       console.error('Error validating admin token:', err);
-      return res.status(500).json({ error: 'Server error.' });
+      return res.status(500).json({ message: 'Error validating token' });
     }
   }
 
   try {
-    const [tenants] = await db.execute(
-      'SELECT tenant_id, username, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number, created_at FROM tenants'
-    );
-    // Decrypt sensitive fields
-    const decryptedTenants = tenants.map(t => ({
-      ...t,
-      username: t.username ? decryptDeterministic(t.username) : '',
-      email: t.email ? decryptDeterministic(t.email) : '',
-      contact_number: t.contact_number ? decrypt(t.contact_number) : '',
-      emergency_contact_number: t.emergency_contact_number ? decrypt(t.emergency_contact_number) : ''
-    }));
-
+    const [tenants] = await db.execute('SELECT * FROM tenant_accounts');
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Tenant_Account_Reports');
     worksheet.columns = [
-      { header: 'Tenant ID', key: 'tenant_id', width: 10 },
-      { header: 'Username', key: 'username', width: 20 },
-      { header: 'Full Name', key: 'full_name', width: 25 },
-      { header: 'Email', key: 'email', width: 25 },
-      { header: 'Contact Number', key: 'contact_number', width: 18 },
-      { header: 'Apartment ID', key: 'apartment_id', width: 15 },
-      { header: 'Emergency Contact', key: 'emergency_contact', width: 25 },
-      { header: 'Emergency Contact Number', key: 'emergency_contact_number', width: 20 },
-      { header: 'Created At', key: 'created_at', width: 20 }
+      { header: 'Tenant ID', key: 'tenant_id' },
+      { header: 'Full Name', key: 'full_name' },
+      { header: 'Username', key: 'username' },
+      { header: 'Email', key: 'email' },
+      { header: 'Contact Number', key: 'contact_number' },
+      { header: 'Apartment ID', key: 'apartment_id' },
+      { header: 'Emergency Contact', key: 'emergency_contact' },
+      { header: 'Emergency Contact Number', key: 'emergency_contact_number' }
     ];
-    decryptedTenants.forEach(row => worksheet.addRow(row));
+    tenants.forEach(tenant => worksheet.addRow(tenant));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename=Tenant_Account_Reports.xlsx');
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
     console.error('Error exporting accounts:', error);
-    handleDatabaseError(res, error);
+    res.status(500).json({ message: 'Error exporting accounts' });
   }
 });
 
-// Async token validation: checks hardcoded dev token or admin token in DB
 async function isValidAdminToken(token, adminId) {
   if (token === DEVELOPER_TOKEN || token === process.env.DEV_TOKEN) return true;
   if (!adminId) return false;
