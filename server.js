@@ -1105,10 +1105,10 @@ app.get('/api/admin/export-complaints', async (req, res) => {
 
 app.post('/api/admin/export-visitor-logs', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token || !isValidAdminToken(token)) {
+  const adminId = req.body.adminId;
+  if (!token || !(await isValidAdminToken(token, adminId))) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  // Fetch visitor logs from DB
   const [logs] = await db.execute('SELECT * FROM visitor_logs');
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Visitor Logs');
@@ -1128,14 +1128,11 @@ app.post('/api/admin/export-visitor-logs', async (req, res) => {
   await workbook.xlsx.write(res);
   res.end();
 });
-function isValidAdminToken(token) {
-  // Implement your token validation logic here
-  return token === process.env.ADMIN_TOKEN || token === process.env.DEV_TOKEN;
-}
 
 app.post('/api/admin/export-accounts', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token || !isValidAdminToken(token)) {
+  const adminId = req.body.adminId; // Pass adminId from frontend
+  if (!token || !(await isValidAdminToken(token, adminId))) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   try {
@@ -1174,3 +1171,17 @@ app.post('/api/admin/export-accounts', async (req, res) => {
     handleDatabaseError(res, error);
   }
 });
+
+// Async token validation: checks hardcoded dev token or admin token in DB
+async function isValidAdminToken(token, adminId) {
+  if (token === DEVELOPER_TOKEN || token === process.env.DEV_TOKEN) return true;
+  if (!adminId) return false;
+  try {
+    const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
+    if (rows.length === 0) return false;
+    return await bcrypt.compare(token, rows[0].admin_token);
+  } catch (err) {
+    console.error('Error validating admin token:', err);
+    return false;
+  }
+}
