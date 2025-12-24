@@ -1047,3 +1047,22 @@ app.put('/api/tenant/visitor-logs/:logId/timeout', async (req, res) => {
         handleDatabaseError(res, err);
     }
 });
+
+app.post('/api/tenant/submit-visitor', async (req, res) => {
+    const { tenantId, fullName, apartmentId, visitorNames, visitDate, timeIn, purpose } = req.body;
+
+    if (!tenantId || !fullName || !apartmentId || !visitorNames || !visitDate || !timeIn) {
+        return res.status(400).json({ message: 'All visitor log fields are required.' });
+    }
+
+    try {
+        const [result] = await db.execute(
+            'INSERT INTO visitor_logs (tenant_id, apartment_id, unit_owner_name, visitor_names, purpose, visit_date, time_in) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [tenantId, apartmentId, fullName, visitorNames, purpose || null, visitDate, timeIn]
+        );
+        res.status(201).json({ message: 'Visitor log submitted successfully!', logId: result.insertId });
+    } catch (error) {
+        console.error('Error submitting visitor log:', error);
+        handleDatabaseError(res, error);
+    }
+});
