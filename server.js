@@ -1,42 +1,3 @@
-// Get all visitor logs for a specific tenant
-app.get('/api/tenant/visitor-logs/:tenantId', async (req, res) => {
-    const { tenantId } = req.params;
-    if (!tenantId) {
-        return res.status(400).json({ message: 'Missing tenantId' });
-    }
-    try {
-        const [rows] = await db.query(
-            'SELECT log_id, visit_date, visitor_names, purpose, time_in, time_out FROM visitor_logs WHERE tenant_id = ? ORDER BY visit_date DESC, log_id DESC',
-            [tenantId]
-        );
-        res.json(rows);
-    } catch (err) {
-        handleDatabaseError(res, err);
-    }
-});
-
-// Set time out for a visitor log
-app.put('/api/tenant/visitor-logs/:logId/timeout', async (req, res) => {
-    const { logId } = req.params;
-    const { timeOut } = req.body;
-    if (!logId || !timeOut) {
-        return res.status(400).json({ message: 'Missing logId or timeOut' });
-    }
-    try {
-        // Only allow setting time_out if not already set
-        const [rows] = await db.query('SELECT time_out FROM visitor_logs WHERE log_id = ?', [logId]);
-        if (!rows.length) {
-            return res.status(404).json({ message: 'Visitor log not found' });
-        }
-        if (rows[0].time_out) {
-            return res.status(400).json({ message: 'Time out already set for this log' });
-        }
-        await db.query('UPDATE visitor_logs SET time_out = ? WHERE log_id = ?', [timeOut, logId]);
-        res.json({ message: 'Time out updated successfully' });
-    } catch (err) {
-        handleDatabaseError(res, err);
-    }
-});
 const express = require('express');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
@@ -1009,5 +970,45 @@ app.post('/api/tenant/register', async (req, res) => {
     } catch (error) {
         console.error('[REGISTER] Error during tenant registration:', error && error.stack ? error.stack : error);
         handleDatabaseError(res, error);
+    }
+});
+
+// Get all visitor logs for a specific tenant
+app.get('/api/tenant/visitor-logs/:tenantId', async (req, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId) {
+        return res.status(400).json({ message: 'Missing tenantId' });
+    }
+    try {
+        const [rows] = await db.query(
+            'SELECT log_id, visit_date, visitor_names, purpose, time_in, time_out FROM visitor_logs WHERE tenant_id = ? ORDER BY visit_date DESC, log_id DESC',
+            [tenantId]
+        );
+        res.json(rows);
+    } catch (err) {
+        handleDatabaseError(res, err);
+    }
+});
+
+// Set time out for a visitor log
+app.put('/api/tenant/visitor-logs/:logId/timeout', async (req, res) => {
+    const { logId } = req.params;
+    const { timeOut } = req.body;
+    if (!logId || !timeOut) {
+        return res.status(400).json({ message: 'Missing logId or timeOut' });
+    }
+    try {
+        // Only allow setting time_out if not already set
+        const [rows] = await db.query('SELECT time_out FROM visitor_logs WHERE log_id = ?', [logId]);
+        if (!rows.length) {
+            return res.status(404).json({ message: 'Visitor log not found' });
+        }
+        if (rows[0].time_out) {
+            return res.status(400).json({ message: 'Time out already set for this log' });
+        }
+        await db.query('UPDATE visitor_logs SET time_out = ? WHERE log_id = ?', [timeOut, logId]);
+        res.json({ message: 'Time out updated successfully' });
+    } catch (err) {
+        handleDatabaseError(res, err);
     }
 });
