@@ -1,3 +1,79 @@
+// --- IMPORTS & CONSTANTS ---
+const express = require('express');
+const mysql = require('mysql2/promise');
+const dotenv = require('dotenv');
+const bcrypt = require('bcrypt');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } });
+const crypto = require('crypto');
+dotenv.config();
+
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012';
+const IV_LENGTH = 16;
+const app = express();
+const port = process.env.PORT || 5000;
+
+// --- MIDDLEWARE ---
+app.use(express.json());
+app.use(cors());
+
+// --- DB POOL ---
+const db = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT
+});
+
+// --- UTILS ---
+const handleDatabaseError = (res, err) => {
+    console.error('Database error:', err);
+    res.status(500).json({ message: 'Database error occurred' });
+};
+
+const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+const DEVELOPER_TOKEN = 'Token';
+
+// --- ENCRYPTION HELPERS ---
+function encryptDeterministic(text) {
+    if (!text) return '';
+    const iv = Buffer.alloc(IV_LENGTH, 0);
+    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    return encrypted;
+}
+function encrypt(text) {
+    if (!text) return '';
+    let iv = crypto.randomBytes(IV_LENGTH);
+    let cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    return iv.toString('hex') + ':' + encrypted;
+}
+function decryptDeterministic(encrypted) {
+    if (!encrypted) return '';
+    const iv = Buffer.alloc(IV_LENGTH, 0);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+}
+function decrypt(text) {
+    if (!text) return '';
+    let parts = text.split(':');
+    let iv = Buffer.from(parts.shift(), 'hex');
+    let encryptedText = parts.join(':');
+    let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+}
+
+// --- ROUTES ---
 // Get all complaints for a specific tenant (for EditComplaints and ComplaintStatus)
 app.get('/api/tenant/complaints', async (req, res) => {
     const { tenantId } = req.query;
@@ -36,85 +112,6 @@ app.get('/api/tenant/complaints', async (req, res) => {
         handleDatabaseError(res, error);
     }
 });
-const express = require('express');
-const mysql = require('mysql2/promise');
-const dotenv = require('dotenv');
-const bcrypt = require('bcrypt');
-const cors = require('cors');
-const jwt = require('jsonwebtoken');
-const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } });
-const crypto = require('crypto');
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012';
-const IV_LENGTH = 16;
-
-// Deterministic encryption for username/email (fixed IV)
-function encryptDeterministic(text) {
-    if (!text) return '';
-    // Use a fixed IV for deterministic encryption (e.g., all zeros)
-    const iv = Buffer.alloc(IV_LENGTH, 0);
-    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return encrypted;
-}
-
-// Standard encryption for other fields (random IV)
-function encrypt(text) {
-    if (!text) return '';
-    let iv = crypto.randomBytes(IV_LENGTH);
-    let cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
-}
-
-function decryptDeterministic(encrypted) {
-    if (!encrypted) return '';
-    const iv = Buffer.alloc(IV_LENGTH, 0);
-    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-}
-
-function decrypt(text) {
-    if (!text) return '';
-    let parts = text.split(':');
-    let iv = Buffer.from(parts.shift(), 'hex');
-    let encryptedText = parts.join(':');
-    let decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-}
-
-dotenv.config();
-
-const app = express();
-const port = process.env.PORT || 5000;
-
-app.use(express.json());
-app.use(cors());
-
-const db = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASS,
-    database: process.env.DB_NAME,
-    port: process.env.DB_PORT
-});
-
-const handleDatabaseError = (res, err) => {
-    console.error('Database error:', err);
-    res.status(500).json({ message: 'Database error occurred' });
-};
-
-const generateOTP = () => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-const DEVELOPER_TOKEN = 'Token';
 
 app.post('/api/admin/register', async (req, res) => {
     const { fullName, email, username, password, adminToken } = req.body;
