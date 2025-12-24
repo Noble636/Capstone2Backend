@@ -1,3 +1,41 @@
+// Get all complaints for a specific tenant (for EditComplaints and ComplaintStatus)
+app.get('/api/tenant/complaints', async (req, res) => {
+    const { tenantId } = req.query;
+    if (!tenantId) {
+        return res.status(400).json({ message: 'Missing tenantId' });
+    }
+    try {
+        // Fetch complaints for this tenant
+        const [complaints] = await db.execute(
+            'SELECT complaint_id, complaint_text, complaint_date, submitted_at, status, admin_message FROM tenant_complaints WHERE tenant_id = ? ORDER BY submitted_at DESC',
+            [tenantId]
+        );
+        if (complaints.length > 0) {
+            // Fetch images for these complaints
+            const ids = complaints.map(c => c.complaint_id);
+            const placeholders = ids.map(() => '?').join(',');
+            let imagesByComplaint = {};
+            if (ids.length > 0) {
+                const [imagesRows] = await db.execute(
+                    `SELECT complaint_id, image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id IN (${placeholders}) ORDER BY image_order ASC`,
+                    ids
+                );
+                imagesByComplaint = {};
+                for (const row of imagesRows) {
+                    const base64 = row.image_data ? row.image_data.toString('base64') : null;
+                    const dataUri = base64 ? `data:${row.mime_type || 'image/jpeg'};base64,${base64}` : null;
+                    if (!imagesByComplaint[row.complaint_id]) imagesByComplaint[row.complaint_id] = [];
+                    imagesByComplaint[row.complaint_id].push({ image_id: row.image_id, filename: row.filename, mime_type: row.mime_type, dataUri, image_order: row.image_order });
+                }
+            }
+            for (const c of complaints) c.images = imagesByComplaint[c.complaint_id] || [];
+        }
+        res.status(200).json(complaints);
+    } catch (error) {
+        console.error('Error fetching tenant complaints:', error);
+        handleDatabaseError(res, error);
+    }
+});
 const express = require('express');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
