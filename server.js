@@ -1132,9 +1132,33 @@ app.post('/api/admin/export-visitor-logs', async (req, res) => {
 app.post('/api/admin/export-accounts', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   const adminId = req.body.adminId;
-  if (!token || !(await isValidAdminToken(token, adminId))) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  console.log('[EXPORT ACCOUNTS] token:', token, 'adminId:', adminId);
+
+  // Validate token: dev token or admin token in DB
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: No token provided.' });
   }
+  if (token === DEVELOPER_TOKEN || (process.env.DEV_TOKEN && token === process.env.DEV_TOKEN)) {
+    // Allow dev token
+  } else {
+    if (!adminId) {
+      return res.status(401).json({ error: 'Unauthorized: No adminId provided.' });
+    }
+    try {
+      const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
+      if (rows.length === 0) {
+        return res.status(401).json({ error: 'Unauthorized: Admin not found.' });
+      }
+      const isValid = await bcrypt.compare(token, rows[0].admin_token);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid admin token.' });
+      }
+    } catch (err) {
+      console.error('Error validating admin token:', err);
+      return res.status(500).json({ error: 'Server error.' });
+    }
+  }
+
   try {
     const [tenants] = await db.execute(
       'SELECT tenant_id, username, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number, created_at FROM tenants'
@@ -1149,7 +1173,7 @@ app.post('/api/admin/export-accounts', async (req, res) => {
     }));
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Tenant_Account_Reports'); // <-- Sheet name
+    const worksheet = workbook.addWorksheet('Tenant_Account_Reports');
     worksheet.columns = [
       { header: 'Tenant ID', key: 'tenant_id', width: 10 },
       { header: 'Username', key: 'username', width: 20 },
@@ -1163,7 +1187,7 @@ app.post('/api/admin/export-accounts', async (req, res) => {
     ];
     decryptedTenants.forEach(row => worksheet.addRow(row));
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=Tenant_Account_Reports.xlsx'); // <-- File name
+    res.setHeader('Content-Disposition', 'attachment; filename=Tenant_Account_Reports.xlsx');
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
