@@ -540,7 +540,7 @@ app.put('/api/admin/complaints/:complaintId', async (req, res) => {
 app.get('/api/admin/visitor-logs', async (req, res) => {
     try {
         const [visitorLogs] = await db.execute(
-            'SELECT log_id, tenant_id, apartment_id, unit_owner_name, visitor_names, purpose, visit_date, time_in, created_at ' +
+            'SELECT log_id, tenant_id, apartment_id, unit_owner_name, visitor_names, purpose, visit_date, time_in, time_out, created_at ' +
             'FROM visitor_logs ' +
             'ORDER BY created_at DESC'
         );
