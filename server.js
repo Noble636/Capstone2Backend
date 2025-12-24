@@ -1189,7 +1189,7 @@ async function isValidAdminToken(token, adminId) {
   if (token === DEVELOPER_TOKEN || token === process.env.DEV_TOKEN) return true;
   if (!adminId) return false;
   try {
-    const [rows] = await db.execute('SELECT admin_token FROM admin_accounts WHERE admin_id = ?', [adminId]);
+    const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
     if (rows.length === 0) return false;
     return await bcrypt.compare(token, rows[0].admin_token);
   } catch (err) {
