@@ -1134,21 +1134,18 @@ app.post('/api/admin/export-accounts', async (req, res) => {
   const adminId = req.body.adminId;
   console.log('[EXPORT ACCOUNTS] token:', token, 'adminId:', adminId);
 
-  // Validate token: dev token or admin token in DB
   if (!token) {
     return res.status(401).json({ message: 'Missing token' });
   }
 
-  // Accept hardcoded dev token or .env DEV_TOKEN
   if (token === DEVELOPER_TOKEN || (process.env.DEV_TOKEN && token === process.env.DEV_TOKEN)) {
     // proceed
   } else {
-    // Validate admin token from DB
     if (!adminId) {
       return res.status(401).json({ message: 'Missing adminId' });
     }
     try {
-      const [rows] = await db.execute('SELECT admin_token FROM admin_accounts WHERE admin_id = ?', [adminId]);
+      const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
       if (!rows.length) {
         return res.status(401).json({ message: 'Admin not found' });
       }
@@ -1164,7 +1161,7 @@ app.post('/api/admin/export-accounts', async (req, res) => {
   }
 
   try {
-    const [tenants] = await db.execute('SELECT * FROM tenant_accounts');
+    const [tenants] = await db.execute('SELECT * FROM tenants');
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Tenant_Account_Reports');
     worksheet.columns = [
