@@ -1093,7 +1093,7 @@ app.get('/api/admin/export-complaints', async (req, res) => {
         complaints.forEach(row => worksheet.addRow(row));
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', 'attachment; filename=Tenant_Complaints_Report.xlsx'); // <-- File name
+        res.setHeader('Content-Disposition', 'attachment; filename=Tenant_Complaint_Reports.xlsx'); // <-- File name
 
         await workbook.xlsx.write(res);
         res.end();
@@ -1124,7 +1124,7 @@ app.post('/api/admin/export-visitor-logs', async (req, res) => {
   ];
   logs.forEach(log => worksheet.addRow(log));
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', 'attachment; filename=Tenant_Visitor_Report.xlsx'); // <-- File name
+  res.setHeader('Content-Disposition', 'attachment; filename=Tenant_Visitor_Reports.xlsx'); // <-- File name
   await workbook.xlsx.write(res);
   res.end();
 });
