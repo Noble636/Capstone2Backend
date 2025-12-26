@@ -1208,14 +1208,14 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
   }
 
   try {
-    // Insert unit info
+    // Insert unit info (no image fields here)
     const [result] = await db.query(
       'INSERT INTO available_units (title, description, price) VALUES (?, ?, ?)',
       [unitName, description, price]
     );
     const unitId = result.insertId;
 
-    // Insert images
+    // Insert each image into unit_images
     for (const file of files) {
       await db.query(
         'INSERT INTO unit_images (unit_id, image_data, image_type) VALUES (?, ?, ?)',
@@ -1229,6 +1229,7 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
   }
 });
 
+// Replace your current GET /api/available-units with this:
 app.get('/api/available-units', async (req, res) => {
   try {
     const [units] = await db.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
