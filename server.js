@@ -1199,21 +1199,31 @@ async function isValidAdminToken(token, adminId) {
 }
 
 // POST endpoint for admin to add a unit
-app.post('/api/admin/available-units', upload.single('images'), async (req, res) => {
+app.post('/api/admin/available-units', upload.array('images', 5), async (req, res) => {
   const { unitName, description, price } = req.body;
-  const image = req.file ? req.file.buffer : null;
-  const imageType = req.file ? req.file.mimetype : null;
+  const files = req.files || [];
 
   if (!unitName || !price) {
     return res.status(400).json({ message: 'Unit name and price are required.' });
   }
 
   try {
+    // Insert unit info
     const [result] = await db.query(
-      'INSERT INTO available_units (title, description, price, image, image_type) VALUES (?, ?, ?, ?, ?)',
-      [unitName, description, price, image, imageType]
+      'INSERT INTO available_units (title, description, price) VALUES (?, ?, ?)',
+      [unitName, description, price]
     );
-    res.json({ success: true, unitId: result.insertId });
+    const unitId = result.insertId;
+
+    // Insert images
+    for (const file of files) {
+      await db.query(
+        'INSERT INTO unit_images (unit_id, image_data, image_type) VALUES (?, ?, ?)',
+        [unitId, file.buffer, file.mimetype]
+      );
+    }
+
+    res.json({ success: true, unitId });
   } catch (err) {
     res.status(500).json({ message: 'Database error.' });
   }
@@ -1221,15 +1231,30 @@ app.post('/api/admin/available-units', upload.single('images'), async (req, res)
 
 app.get('/api/available-units', async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT unit_id, title, description, price, image, image_type FROM available_units ORDER BY created_at DESC');
-    // Convert image buffer to base64 for frontend
-    const units = rows.map(unit => ({
+    const [units] = await db.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
+    const unitIds = units.map(u => u.unit_id);
+    let imagesByUnit = {};
+
+    if (unitIds.length > 0) {
+      const [images] = await db.query(
+        `SELECT unit_id, image_data, image_type FROM unit_images WHERE unit_id IN (${unitIds.map(() => '?').join(',')})`,
+        unitIds
+      );
+      for (const img of images) {
+        const dataUri = img.image_data
+          ? `data:${img.image_type};base64,${img.image_data.toString('base64')}`
+          : null;
+        if (!imagesByUnit[img.unit_id]) imagesByUnit[img.unit_id] = [];
+        imagesByUnit[img.unit_id].push({ dataUri });
+      }
+    }
+
+    const result = units.map(unit => ({
       ...unit,
-      image: unit.image
-        ? `data:${unit.image_type};base64,${unit.image.toString('base64')}`
-        : null
+      images: imagesByUnit[unit.unit_id] || []
     }));
-    res.json(units);
+
+    res.json(result);
   } catch (err) {
     res.status(500).json({ message: 'Database error.' });
   }
