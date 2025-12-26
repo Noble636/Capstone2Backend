@@ -1322,3 +1322,57 @@ app.get('/api/available-units', async (req, res) => {
     res.status(500).json({ message: 'Database error.' });
   }
 });
+
+// POST new inquiry
+app.post('/api/unit-inquiries', async (req, res) => {
+  const { unitId, unitName, senderName, message } = req.body;
+  if (!unitId || !unitName || !senderName || !message) {
+    return res.status(400).json({ message: 'All fields are required.' });
+  }
+  try {
+    await db.query(
+      'INSERT INTO unit_inquiries (unit_id, unit_name, sender_name, message) VALUES (?, ?, ?, ?)',
+      [unitId, unitName, senderName, message]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
+
+// GET: Get all inquiries for a user by name
+app.get('/api/unit-inquiries', async (req, res) => {
+  const { name } = req.query;
+  if (!name) return res.status(400).json({ message: 'Name is required.' });
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM unit_inquiries WHERE sender_name = ? ORDER BY created_at',
+      [name]
+    );
+    res.json(rows);
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
+
+// GET: Admin fetches all inquiries
+app.get('/api/admin/inbox', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM unit_inquiries ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
+
+// POST: Admin replies to an inquiry
+app.post('/api/admin/inbox/reply', async (req, res) => {
+  const { inquiryId, reply } = req.body;
+  if (!inquiryId || !reply) return res.status(400).json({ message: 'inquiryId and reply are required.' });
+  try {
+    await db.query('UPDATE unit_inquiries SET reply = ? WHERE inquiry_id = ?', [reply, inquiryId]);
+    res.json({ success: true });
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
