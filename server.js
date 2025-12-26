@@ -1197,29 +1197,3 @@ async function isValidAdminToken(token, adminId) {
     return false;
   }
 }
-
-app.post('/api/admin/available-units', upload.array('images', 5), async (req, res) => {
-    const { adminId, title, description, specifications, price } = req.body;
-    if (!adminId || !title || !price) return res.status(400).json({ message: 'Missing required fields.' });
-    try {
-        const [result] = await db.execute(
-            'INSERT INTO available_units (admin_id, title, description, specifications, price) VALUES (?, ?, ?, ?, ?)',
-            [adminId, title, description || null, specifications || null, price]
-        );
-        const unitId = result.insertId;
-        if (req.files && req.files.length > 0) {
-            let order = 1;
-            for (const file of req.files) {
-                await db.execute(
-                    'INSERT INTO available_unit_images (unit_id, image_data, mime_type, filename, image_order) VALUES (?, ?, ?, ?, ?)',
-                    [unitId, file.buffer, file.mimetype || 'image/jpeg', file.originalname || null, order]
-                );
-                order++;
-            }
-        }
-        res.status(201).json({ message: 'Available unit added successfully!', unitId });
-    } catch (error) {
-        console.error('Error adding available unit:', error);
-        handleDatabaseError(res, error);
-    }
-});
