@@ -6,7 +6,7 @@ const bcrypt = require('bcrypt');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage(), limits: { files: 3, fileSize: 5 * 1024 * 1024 } });
+const upload = multer();
 const crypto = require('crypto');
 const ExcelJS = require('exceljs');
 dotenv.config();
@@ -1197,3 +1197,40 @@ async function isValidAdminToken(token, adminId) {
     return false;
   }
 }
+
+// POST endpoint for admin to add a unit
+app.post('/api/admin/available-units', upload.single('images'), async (req, res) => {
+  const { unitName, description, price } = req.body;
+  const image = req.file ? req.file.buffer : null;
+  const imageType = req.file ? req.file.mimetype : null;
+
+  if (!unitName || !price) {
+    return res.status(400).json({ message: 'Unit name and price are required.' });
+  }
+
+  try {
+    const [result] = await db.query(
+      'INSERT INTO available_units (title, description, price, image, image_type) VALUES (?, ?, ?, ?, ?)',
+      [unitName, description, price, image, imageType]
+    );
+    res.json({ success: true, unitId: result.insertId });
+  } catch (err) {
+    res.status(500).json({ message: 'Database error.' });
+  }
+});
+
+app.get('/api/available-units', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT unit_id, title, description, price, image, image_type FROM available_units ORDER BY created_at DESC');
+    // Convert image buffer to base64 for frontend
+    const units = rows.map(unit => ({
+      ...unit,
+      image: unit.image
+        ? `data:${unit.image_type};base64,${unit.image.toString('base64')}`
+        : null
+    }));
+    res.json(units);
+  } catch (err) {
+    res.status(500).json({ message: 'Database error.' });
+  }
+});
