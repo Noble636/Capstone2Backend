@@ -1376,3 +1376,20 @@ app.post('/api/admin/inbox/reply', async (req, res) => {
     handleDatabaseError(res, err);
   }
 });
+
+// GET: Inquiry history by unit ID and sender name
+app.get('/api/unit-inquiries/history', async (req, res) => {
+  const { unit_id, sender_name } = req.query;
+  if (!unit_id || !sender_name) {
+    return res.status(400).json({ message: 'unit_id and sender_name are required.' });
+  }
+  try {
+    const [rows] = await db.query(
+      'SELECT * FROM unit_inquiries WHERE unit_id = ? AND sender_name = ? ORDER BY created_at',
+      [unit_id, sender_name]
+    );
+    res.json(rows);
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
