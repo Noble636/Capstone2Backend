@@ -1260,3 +1260,65 @@ app.get('/api/available-units', async (req, res) => {
     res.status(500).json({ message: 'Database error.' });
   }
 });
+
+app.post('/api/admin/available-units', upload.array('images', 5), async (req, res) => {
+  const { unitName, description, price } = req.body;
+  const files = req.files || [];
+
+  if (!unitName || !price) {
+    return res.status(400).json({ message: 'Unit name and price are required.' });
+  }
+
+  try {
+    // Insert unit info (no image fields here)
+    const [result] = await db.query(
+      'INSERT INTO available_units (title, description, price) VALUES (?, ?, ?)',
+      [unitName, description, price]
+    );
+    const unitId = result.insertId;
+
+    // Insert each image into unit_images
+    for (const file of files) {
+      await db.query(
+        'INSERT INTO unit_images (unit_id, image_data, image_type) VALUES (?, ?, ?)',
+        [unitId, file.buffer, file.mimetype]
+      );
+    }
+
+    res.json({ success: true, unitId });
+  } catch (err) {
+    res.status(500).json({ message: 'Database error.' });
+  }
+});
+
+// Replace your current GET /api/available-units with this:
+app.get('/api/available-units', async (req, res) => {
+  try {
+    const [units] = await db.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
+    const unitIds = units.map(u => u.unit_id);
+    let imagesByUnit = {};
+
+    if (unitIds.length > 0) {
+      const [images] = await db.query(
+        `SELECT unit_id, image_data, image_type FROM unit_images WHERE unit_id IN (${unitIds.map(() => '?').join(',')})`,
+        unitIds
+      );
+      for (const img of images) {
+        const dataUri = img.image_data
+          ? `data:${img.image_type};base64,${img.image_data.toString('base64')}`
+          : null;
+        if (!imagesByUnit[img.unit_id]) imagesByUnit[img.unit_id] = [];
+        imagesByUnit[img.unit_id].push({ dataUri });
+      }
+    }
+
+    const result = units.map(unit => ({
+      ...unit,
+      images: imagesByUnit[unit.unit_id] || []
+    }));
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ message: 'Database error.' });
+  }
+});
