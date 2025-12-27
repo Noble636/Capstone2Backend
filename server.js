@@ -1433,3 +1433,14 @@ app.get('/api/unit-inquiry-messages', async (req, res) => {
     handleDatabaseError(res, err);
   }
 });
+
+app.delete('/api/admin/available-units/:unitId', async (req, res) => {
+  const { unitId } = req.params;
+  try {
+    await db.query('DELETE FROM available_units WHERE unit_id = ?', [unitId]);
+    await db.query('DELETE FROM unit_images WHERE unit_id = ?', [unitId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Database error.' });
+  }
+});
