@@ -15,7 +15,13 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456
 const IV_LENGTH = 16;
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://apartmentmaintenance.vercel.app', // your frontend
+    'http://localhost:3000' // (optional) for local dev
+  ],
+  credentials: true, // if you use cookies/auth
+}));
 const port = process.env.PORT || 5000;
 
 // --- DB CONNECTION ---
@@ -1756,6 +1762,7 @@ app.post('/api/unit-inquiries/reply', async (req, res) => {
     // Insert reply as a new message
     await db.execute(
       'INSERT INTO unit_inquiries (unit_id, sender_name, message, sender) VALUES (?, ?, ?, ?)',
+     
       [unit_id, sender_name, message, sender]
     );
     res.json({ message: 'Reply sent.' });
