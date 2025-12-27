@@ -1325,16 +1325,16 @@ app.get('/api/available-units', async (req, res) => {
 
 // POST new inquiry
 app.post('/api/unit-inquiries', async (req, res) => {
-  const { unitId, unitName, senderName, message } = req.body;
-  if (!unitId || !unitName || !senderName || !message) {
-    return res.status(400).json({ message: 'All fields are required.' });
+  const { unit_id, sender_name, message } = req.body;
+  if (!unit_id || !sender_name || !message) {
+    return res.status(400).json({ message: 'Missing required fields' });
   }
   try {
     await db.query(
-      'INSERT INTO unit_inquiries (unit_id, unit_name, sender_name, message) VALUES (?, ?, ?, ?)',
-      [unitId, unitName, senderName, message]
+      'INSERT INTO unit_inquiries (unit_id, sender_name, message, sender) VALUES (?, ?, ?, ?)',
+      [unit_id, sender_name, message, 'tenant']
     );
-    res.json({ success: true });
+    res.status(201).json({ message: 'Inquiry sent' });
   } catch (err) {
     handleDatabaseError(res, err);
   }
@@ -1368,10 +1368,14 @@ app.get('/api/admin/inbox', async (req, res) => {
 // POST: Admin replies to an inquiry
 app.post('/api/admin/inbox/reply', async (req, res) => {
   const { inquiryId, reply } = req.body;
-  if (!inquiryId || !reply) return res.status(400).json({ message: 'inquiryId and reply are required.' });
+  if (!inquiryId || !reply) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
   try {
+    // Save reply in the same inquiry row (add a 'reply' column in unit_inquiries if not present)
     await db.query('UPDATE unit_inquiries SET reply = ? WHERE inquiry_id = ?', [reply, inquiryId]);
-    res.json({ success: true });
+    // Optionally, you can also insert a new row for each reply if you want a threaded chat
+    res.status(200).json({ message: 'Reply sent' });
   } catch (err) {
     handleDatabaseError(res, err);
   }
@@ -1381,11 +1385,47 @@ app.post('/api/admin/inbox/reply', async (req, res) => {
 app.get('/api/unit-inquiries/history', async (req, res) => {
   const { unit_id, sender_name } = req.query;
   if (!unit_id || !sender_name) {
-    return res.status(400).json({ message: 'unit_id and sender_name are required.' });
+    return res.status(400).json({ message: 'Missing required fields' });
   }
   try {
     const [rows] = await db.query(
-      'SELECT * FROM unit_inquiries WHERE unit_id = ? AND sender_name = ? ORDER BY created_at',
+      'SELECT * FROM unit_inquiries WHERE unit_id = ? AND sender_name = ? ORDER BY created_at ASC',
+      [unit_id, sender_name]
+    );
+    res.json(rows);
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
+
+// POST new inquiry message
+app.post('/api/unit-inquiry-messages', async (req, res) => {
+  const { unit_id, sender_name, sender_type, message } = req.body;
+  if (!unit_id || !sender_name || !sender_type || !message) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+  try {
+    await db.query(
+      'INSERT INTO unit_inquiry_messages (unit_id, sender_name, sender_type, message) VALUES (?, ?, ?, ?)',
+      [unit_id, sender_name, sender_type, message]
+    );
+    res.status(201).json({ message: 'Message sent' });
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
+
+// GET: Get all inquiry messages for a unit and sender
+app.get('/api/unit-inquiry-messages', async (req, res) => {
+  const { unit_id, sender_name } = req.query;
+  if (!unit_id || !sender_name) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM unit_inquiry_messages 
+       WHERE unit_id = ? AND (sender_name = ? OR sender_type = 'admin')
+       ORDER BY created_at ASC`,
       [unit_id, sender_name]
     );
     res.json(rows);
