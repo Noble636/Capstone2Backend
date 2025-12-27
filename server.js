@@ -14,34 +14,14 @@ dotenv.config();
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012';
 const IV_LENGTH = 16;
 const app = express();
-app.use(express.json());
-app.use(cors({
-  origin: [
-    'https://apartmentmaintenance.vercel.app', // your frontend
-    'http://localhost:3000' // (optional) for local dev
-  ],
-  credentials: true, // if you use cookies/auth
-}));
 const port = process.env.PORT || 5000;
-
-// --- DB CONNECTION ---
-let db;
-async function initDb() {
-    db = await mysql.createConnection({
-        host: process.env.DB_HOST,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASS,
-        database: process.env.DB_NAME,
-    });
-}
-initDb();
 
 // --- MIDDLEWARE ---
 app.use(express.json());
 app.use(cors());
 
 // --- DB POOL ---
-const dbPool = mysql.createPool({
+const db = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
@@ -103,7 +83,7 @@ app.get('/api/tenant/complaints', async (req, res) => {
     }
     try {
         // Fetch complaints for this tenant
-        const [complaints] = await dbPool.execute(
+        const [complaints] = await db.execute(
             'SELECT complaint_id, complaint_text, complaint_date, submitted_at, status, admin_message FROM tenant_complaints WHERE tenant_id = ? ORDER BY submitted_at DESC',
             [tenantId]
         );
@@ -113,7 +93,7 @@ app.get('/api/tenant/complaints', async (req, res) => {
             const placeholders = ids.map(() => '?').join(',');
             let imagesByComplaint = {};
             if (ids.length > 0) {
-                const [imagesRows] = await dbPool.execute(
+                const [imagesRows] = await db.execute(
                     `SELECT complaint_id, image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id IN (${placeholders}) ORDER BY image_order ASC`,
                     ids
                 );
@@ -146,14 +126,14 @@ app.post('/api/admin/register', async (req, res) => {
         const encryptedUsername = encryptDeterministic(username);
         console.log('[REGISTER] Encrypted Username:', encryptedUsername);
         const encryptedEmail = encryptDeterministic(email);
-        const [existingAdmin] = await dbPool.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
+        const [existingAdmin] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
         if (existingAdmin.length > 0) {
             return res.status(409).json({ message: 'Username already exists for an admin account.' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
         const hashedAdminToken = await bcrypt.hash(adminToken, 10);
-        const [result] = await dbPool.execute(
+        const [result] = await db.execute(
             'INSERT INTO admins (full_name, email, username, password, admin_token) VALUES (?, ?, ?, ?, ?)',
             [fullName, encryptedEmail, encryptedUsername, hashedPassword, hashedAdminToken]
         );
@@ -176,7 +156,7 @@ app.post('/api/admin/login', async (req, res) => {
             console.log('[LOGIN] Username:', username);
             const encryptedUsername = encryptDeterministic(username);
             console.log('[LOGIN] Encrypted Username:', encryptedUsername);
-            const [admins] = await dbPool.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
+            const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
 
         if (admins.length === 0) {
             return res.status(401).json({ message: 'Invalid username or password.' });
@@ -210,13 +190,13 @@ app.post('/api/tenant/register', async (req, res) => {
         const encryptedContactNumber = contactNumber ? encrypt(contactNumber) : null;
         const encryptedEmergencyContactNumber = emergencyContactNumber ? encrypt(emergencyContactNumber) : null;
 
-        const [existingUser] = await dbPool.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
+        const [existingUser] = await db.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
         if (existingUser.length > 0) {
             return res.status(409).json({ message: 'Username already exists' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const [result] = await dbPool.execute(
+        const [result] = await db.execute(
             'INSERT INTO tenants (username, password, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [encryptedUsername, hashedPassword, fullName, encryptedEmail, encryptedContactNumber, apartmentId, emergencyContact, encryptedEmergencyContactNumber]
         );
@@ -237,7 +217,7 @@ app.post('/api/tenant/forgot-password/verify-username', async (req, res) => {
     }
 
     try {
-        const [tenantResults] = await dbPool.execute('SELECT username, full_name, contact_number, apartment_id, email FROM tenants WHERE username = ?', [username]);
+        const [tenantResults] = await db.execute('SELECT username, full_name, contact_number, apartment_id, email FROM tenants WHERE username = ?', [username]);
         if (tenantResults.length === 0) {
             return res.status(404).json({ message: 'Username not found' });
         }
@@ -247,7 +227,7 @@ app.post('/api/tenant/forgot-password/verify-username', async (req, res) => {
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 5 * 60 * 1000);
 
-        await dbPool.execute(
+        await db.execute(
             'INSERT INTO password_reset_otps (username, otp, expires_at) VALUES (?, ?, ?)',
             [username, otp, expiresAt]
         );
@@ -287,7 +267,7 @@ app.post('/api/tenant/forgot-password/verify-otp', async (req, res) => {
     }
 
     try {
-        const [otpResults] = await dbPool.execute(
+        const [otpResults] = await db.execute(
             'SELECT * FROM password_reset_otps WHERE username = ? AND otp = ? AND expires_at > NOW()',
             [username, otp]
         );
@@ -311,7 +291,7 @@ app.post('/api/tenant/forgot-password/reset-password', async (req, res) => {
     }
 
     try {
-        const [otpResults] = await dbPool.execute(
+        const [otpResults] = await db.execute(
             'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW()',
             [username]
         );
@@ -321,9 +301,9 @@ app.post('/api/tenant/forgot-password/reset-password', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await dbPool.execute('UPDATE tenants SET password = ? WHERE username = ?', [hashedPassword, username]);
+        await db.execute('UPDATE tenants SET password = ? WHERE username = ?', [hashedPassword, username]);
 
-        await dbPool.execute('DELETE FROM password_reset_otps WHERE username = ?', [username]);
+        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [username]);
 
         res.status(200).json({ message: 'Password reset successfully' });
     } catch (error) {
@@ -340,7 +320,7 @@ app.post('/api/tenant/submit-complaint', upload.array('images', 3), async (req, 
     }
 
     try {
-        const [result] = await dbPool.execute(
+        const [result] = await db.execute(
             'INSERT INTO tenant_complaints (tenant_id, complaint_text, complaint_date, status, admin_message) VALUES (?, ?, ?, ?, ?)',
             [tenantId, complaint, date, 'Pending', null]
         );
@@ -350,7 +330,7 @@ app.post('/api/tenant/submit-complaint', upload.array('images', 3), async (req, 
             const files = req.files.slice(0, 3);
             let order = 1;
             for (const file of files) {
-                await dbPool.execute(
+                await db.execute(
                     'INSERT INTO complaint_images (complaint_id, image_data, mime_type, filename, image_order) VALUES (?, ?, ?, ?, ?)',
                     [complaintId, file.buffer, file.mimetype || 'image/jpeg', file.originalname || null, order]
                 );
@@ -374,7 +354,7 @@ app.post('/api/tenant/login', async (req, res) => {
 
     try {
         const encryptedUsername = encryptDeterministic(username);
-        const [tenants] = await dbPool.execute('SELECT tenant_id, username, password, full_name, apartment_id FROM tenants WHERE username = ?', [encryptedUsername]);
+        const [tenants] = await db.execute('SELECT tenant_id, username, password, full_name, apartment_id FROM tenants WHERE username = ?', [encryptedUsername]);
         if (tenants.length === 0) {
             return res.status(401).json({ message: 'Invalid username or password.' });
         }
@@ -406,18 +386,18 @@ app.put('/api/tenant/complaints/:complaintId', upload.array('images', 3), async 
     }
 
     try {
-        await dbPool.execute(
+        await db.execute(
             'UPDATE tenant_complaints SET complaint_text = ? WHERE complaint_id = ?',
             [complaintText, complaintId]
         );
 
         if (req.files && req.files.length > 0) {
-            await dbPool.execute('DELETE FROM complaint_images WHERE complaint_id = ?', [complaintId]);
+            await db.execute('DELETE FROM complaint_images WHERE complaint_id = ?', [complaintId]);
 
             const files = req.files.slice(0, 3);
             let order = 1;
             for (const file of files) {
-                await dbPool.execute(
+                await db.execute(
                     'INSERT INTO complaint_images (complaint_id, image_data, mime_type, filename, image_order) VALUES (?, ?, ?, ?, ?)',
                     [complaintId, file.buffer, file.mimetype || 'image/jpeg', file.originalname || null, order]
                 );
@@ -435,7 +415,7 @@ app.put('/api/tenant/complaints/:complaintId', upload.array('images', 3), async 
 app.delete('/api/tenant/complaints/:complaintId', async (req, res) => {
     const { complaintId } = req.params;
     try {
-        const [result] = await dbPool.execute('DELETE FROM tenant_complaints WHERE complaint_id = ?', [complaintId]);
+        const [result] = await db.execute('DELETE FROM tenant_complaints WHERE complaint_id = ?', [complaintId]);
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Complaint not found.' });
         }
@@ -448,7 +428,7 @@ app.delete('/api/tenant/complaints/:complaintId', async (req, res) => {
 
 app.get('/api/admin/complaints/active', async (req, res) => {
     try {
-        const [activeComplaints] = await dbPool.execute(
+        const [activeComplaints] = await db.execute(
             'SELECT tc.complaint_id, t.full_name, t.apartment_id, tc.complaint_text, tc.submitted_at, t.email ' +
             'FROM tenant_complaints tc ' +
             'JOIN tenants t ON tc.tenant_id = t.tenant_id ' +
@@ -458,7 +438,7 @@ app.get('/api/admin/complaints/active', async (req, res) => {
         if (activeComplaints.length > 0) {
             const ids = activeComplaints.map(c => c.complaint_id);
             const placeholders = ids.map(() => '?').join(',');
-            const [imagesRows] = await dbPool.execute(
+            const [imagesRows] = await db.execute(
                 `SELECT complaint_id, image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id IN (${placeholders}) ORDER BY image_order ASC`,
                 ids
             );
@@ -481,7 +461,7 @@ app.get('/api/admin/complaints/active', async (req, res) => {
 
 app.get('/api/admin/complaints/log', async (req, res) => {
     try {
-        const [complaintsLog] = await dbPool.execute(
+        const [complaintsLog] = await db.execute(
             'SELECT tc.complaint_id, t.full_name, t.apartment_id, tc.complaint_text, tc.submitted_at, tc.status, tc.admin_message, t.email ' +
             'FROM tenant_complaints tc ' +
             'JOIN tenants t ON tc.tenant_id = t.tenant_id ' +
@@ -491,7 +471,7 @@ app.get('/api/admin/complaints/log', async (req, res) => {
         if (complaintsLog.length > 0) {
             const ids = complaintsLog.map(c => c.complaint_id);
             const placeholders = ids.map(() => '?').join(',');
-            const [imagesRows] = await dbPool.execute(
+            const [imagesRows] = await db.execute(
                 `SELECT complaint_id, image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id IN (${placeholders}) ORDER BY image_order ASC`,
                 ids
             );
@@ -522,37 +502,37 @@ app.put('/api/admin/complaints/:complaintId', async (req, res) => {
     }
 
     try {
-        await dbPool.query('START TRANSACTION');
+        await db.query('START TRANSACTION');
 
-        const [currentComplaint] = await dbPool.execute(
+        const [currentComplaint] = await db.execute(
             'SELECT status FROM tenant_complaints WHERE complaint_id = ? FOR UPDATE',
             [complaintId]
         );
 
         if (currentComplaint.length === 0) {
-            await dbPool.query('ROLLBACK');
+            await db.query('ROLLBACK');
             return res.status(404).json({ message: `Complaint ${complaintId} not found.` });
         }
         const oldStatus = currentComplaint[0].status;
 
-        const [updateResult] = await dbPool.execute(
+        const [updateResult] = await db.execute(
             'UPDATE tenant_complaints SET status = ?, admin_message = ? WHERE complaint_id = ?',
             [status, adminMessage, complaintId]
         );
 
         if (updateResult.affectedRows > 0) {
-            await dbPool.execute(
+            await db.execute(
                 'INSERT INTO complaint_admin_actions (complaint_id, admin_id, action_type, old_status, new_status, action_message) VALUES (?, ?, ?, ?, ?, ?)',
                 [complaintId, adminId, 'Status Update', oldStatus, status, adminMessage]
             );
-            await dbPool.query('COMMIT');
+            await db.query('COMMIT');
         res.status(200).json({ message: `Complaint ${complaintId} marked as ${status}.` });
         } else {
-            await dbPool.query('ROLLBACK');
+            await db.query('ROLLBACK');
             res.status(500).json({ message: 'Failed to update complaint status.' });
         }
     } catch (error) {
-        await dbPool.query('ROLLBACK');
+        await db.query('ROLLBACK');
         console.error('Error updating complaint status:', error);
         handleDatabaseError(res, error);
     }
@@ -560,7 +540,7 @@ app.put('/api/admin/complaints/:complaintId', async (req, res) => {
 
 app.get('/api/admin/visitor-logs', async (req, res) => {
     try {
-        const [visitorLogs] = await dbPool.execute(
+        const [visitorLogs] = await db.execute(
             'SELECT log_id, tenant_id, apartment_id, unit_owner_name, visitor_names, purpose, visit_date, time_in, time_out, created_at ' +
             'FROM visitor_logs ' +
             'ORDER BY created_at DESC'
@@ -574,7 +554,7 @@ app.get('/api/admin/visitor-logs', async (req, res) => {
 
 app.get('/api/admin/tenants', async (req, res) => {
     try {
-        const [tenants] = await dbPool.execute(
+        const [tenants] = await db.execute(
             'SELECT tenant_id, username, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number, created_at ' +
             'FROM tenants ' +
             'ORDER BY created_at DESC'
@@ -602,7 +582,7 @@ app.get('/api/tenant/profile/:tenantId', async (req, res) => {
     }
 
     try {
-        const [tenantRows] = await dbPool.execute(
+        const [tenantRows] = await db.execute(
             'SELECT tenant_id, username, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number, password FROM tenants WHERE tenant_id = ?',
             [tenantId]
         );
@@ -626,7 +606,7 @@ app.get('/api/admin/profile/:adminId', async (req, res) => {
     const { adminId } = req.params;
     if (!adminId) return res.status(400).json({ message: 'Admin ID is required.' });
     try {
-        const [rows] = await dbPool.execute('SELECT admin_id, username, full_name, email FROM admins WHERE admin_id = ?', [adminId]);
+        const [rows] = await db.execute('SELECT admin_id, username, full_name, email FROM admins WHERE admin_id = ?', [adminId]);
         if (rows.length === 0) return res.status(404).json({ message: 'Admin not found.' });
         const admin = rows[0];
         admin.username = decryptDeterministic(admin.username);
@@ -645,7 +625,7 @@ app.put('/api/admin/profile/:adminId', async (req, res) => {
     if (!fullName) return res.status(400).json({ message: 'Full name is required.' });
 
     try {
-        const [admins] = await dbPool.execute('SELECT username, password FROM admins WHERE admin_id = ?', [adminId]);
+        const [admins] = await db.execute('SELECT username, password FROM admins WHERE admin_id = ?', [adminId]);
         if (admins.length === 0) return res.status(404).json({ message: 'Admin not found.' });
         const storedUsername = admins[0].username;
         const storedHashedPassword = admins[0].password;
@@ -697,13 +677,13 @@ app.put('/api/admin/profile/:adminId', async (req, res) => {
         const updateQuery = `UPDATE admins SET ${setParts.join(', ')} WHERE admin_id = ?`;
         params.push(adminId);
 
-        const [result] = await dbPool.execute(updateQuery, params);
+        const [result] = await db.execute(updateQuery, params);
         if (result.affectedRows === 0) return res.status(404).json({ message: 'Admin not found or no changes made.' });
 
         let forceLogout = false;
         if (usernameChanged) {
-            await dbPool.execute('UPDATE password_reset_otps SET username = ? WHERE username = ?', [username, storedUsername]);
-            await dbPool.execute('UPDATE password_reset_grants SET username = ? WHERE username = ?', [username, storedUsername]);
+            await db.execute('UPDATE password_reset_otps SET username = ? WHERE username = ?', [username, storedUsername]);
+            await db.execute('UPDATE password_reset_grants SET username = ? WHERE username = ?', [username, storedUsername]);
             forceLogout = true;
         }
 
@@ -723,7 +703,7 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
     }
 
     try {
-        const [tenants] = await dbPool.execute('SELECT username, password FROM tenants WHERE tenant_id = ?', [tenantId]);
+        const [tenants] = await db.execute('SELECT username, password FROM tenants WHERE tenant_id = ?', [tenantId]);
         if (tenants.length === 0) {
             return res.status(404).json({ message: 'Tenant not found.' });
         }
@@ -743,7 +723,7 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
             }
         }
         if (usernameChanged) {
-            const [existing] = await dbPool.execute('SELECT tenant_id FROM tenants WHERE username = ? AND tenant_id != ?', [username, tenantId]);
+            const [existing] = await db.execute('SELECT tenant_id FROM tenants WHERE username = ? AND tenant_id != ?', [username, tenantId]);
             if (existing.length > 0) {
                 return res.status(409).json({ message: 'Username already taken.' });
             }
@@ -766,7 +746,7 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
         const updateQuery = `UPDATE tenants SET ${setParts.join(', ')} WHERE tenant_id = ?`;
         params.push(tenantId);
 
-        const [result] = await dbPool.execute(updateQuery, params);
+        const [result] = await db.execute(updateQuery, params);
 
         if (result.affectedRows === 0) {
             return res.status(404).json({ message: 'Tenant not found or no changes made.' });
@@ -774,8 +754,8 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
 
         let forceLogout = false;
         if (usernameChanged) {
-            await dbPool.execute('UPDATE password_reset_otps SET username = ? WHERE username = ?', [username, storedUsername]);
-            await dbPool.execute('UPDATE password_reset_grants SET username = ? WHERE username = ?', [username, storedUsername]);
+            await db.execute('UPDATE password_reset_otps SET username = ? WHERE username = ?', [username, storedUsername]);
+            await db.execute('UPDATE password_reset_grants SET username = ? WHERE username = ?', [username, storedUsername]);
             forceLogout = true;
         }
 
@@ -797,7 +777,7 @@ app.post('/api/admin/forgot-password/verify-token', async (req, res) => {
         // allow
         return res.status(200).json({ message: 'Developer token verified.' });
     } else {
-        const [admins] = await dbPool.execute('SELECT * FROM admins WHERE username = ?', [username]);
+        const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [username]);
         if (admins.length > 0 && await bcrypt.compare(developerToken, admins[0].admin_token)) {
             // allow
             return res.status(200).json({ message: 'Admin token verified.' });
@@ -816,7 +796,7 @@ app.post('/api/admin/forgot-password/verify-username', async (req, res) => {
     }
 
     try {
-    const [adminResults] = await dbPool.execute('SELECT username, full_name, email FROM admins WHERE username = ?', [username]);
+    const [adminResults] = await db.execute('SELECT username, full_name, email FROM admins WHERE username = ?', [username]);
         if (adminResults.length === 0) {
             return res.status(404).json({ message: 'Admin username not found.' });
         }
@@ -826,7 +806,7 @@ app.post('/api/admin/forgot-password/verify-username', async (req, res) => {
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 5 * 60 * 1000);
 
-        await dbPool.execute(
+        await db.execute(
             'INSERT INTO password_reset_otps (username, otp, expires_at) VALUES (?, ?, ?)',
             [username, otp, expiresAt]
         );
@@ -867,7 +847,7 @@ app.post('/api/admin/forgot-password/verify-otp', async (req, res) => {
     }
 
     try {
-        const [otpResults] = await dbPool.execute(
+        const [otpResults] = await db.execute(
             'SELECT * FROM password_reset_otps WHERE username = ? AND otp = ? AND expires_at > NOW()',
             [username, otp]
         );
@@ -891,7 +871,7 @@ app.post('/api/admin/forgot-password/reset-password', async (req, res) => {
     }
 
     try {
-        const [otpResults] = await dbPool.execute(
+        const [otpResults] = await db.execute(
             'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW()',
             [username]
         );
@@ -901,9 +881,9 @@ app.post('/api/admin/forgot-password/reset-password', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await dbPool.execute('UPDATE admins SET password = ? WHERE username = ?', [hashedPassword, username]);
+        await db.execute('UPDATE admins SET password = ? WHERE username = ?', [hashedPassword, username]);
 
-        await dbPool.execute('DELETE FROM password_reset_otps WHERE username = ?', [username]);
+        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [username]);
 
         res.status(200).json({ message: 'Admin password reset successfully!' });
     } catch (error) {
@@ -920,25 +900,25 @@ app.delete('/api/admin/tenants/:tenantId', async (req, res) => {
     }
 
     try {
-        await dbPool.query('START TRANSACTION');
+        await db.query('START TRANSACTION');
 
-        await dbPool.execute('DELETE FROM tenant_complaints WHERE tenant_id = ?', [tenantId]);
+        await db.execute('DELETE FROM tenant_complaints WHERE tenant_id = ?', [tenantId]);
 
-        await dbPool.execute('DELETE FROM visitor_logs WHERE tenant_id = ?', [tenantId]);
+        await db.execute('DELETE FROM visitor_logs WHERE tenant_id = ?', [tenantId]);
 
-        const [tenantResult] = await dbPool.execute('DELETE FROM tenants WHERE tenant_id = ?', [tenantId]);
+        const [tenantResult] = await db.execute('DELETE FROM tenants WHERE tenant_id = ?', [tenantId]);
 
         if (tenantResult.affectedRows === 0) {
-            await dbPool.query('ROLLBACK');
+            await db.query('ROLLBACK');
             return res.status(404).json({ message: `Tenant account with ID '${tenantId}' not found.` });
         }
 
-        await dbPool.query('COMMIT');
+        await db.query('COMMIT');
 
         res.status(200).json({ message: `Tenant account with ID '${tenantId}' and associated data deleted successfully.` });
 
     } catch (error) {
-        await dbPool.query('ROLLBACK');
+        await db.query('ROLLBACK');
         console.error('Error deleting tenant account and associated data:', error);
         handleDatabaseError(res, error);
     }
@@ -958,7 +938,7 @@ app.post('/api/admin/verify-admin-token', async (req, res) => {
     }
 
     try {
-        const [rows] = await dbPool.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
+        const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
         if (rows.length === 0) {
             return res.status(404).json({ valid: false, message: 'Admin not found.' });
         }
@@ -1009,14 +989,14 @@ app.post('/api/tenant/register', async (req, res) => {
         const encryptedEmergencyContactNumber = emergencyContactNumber ? encrypt(emergencyContactNumber) : null;
 
         // Check if username already exists (search by encrypted username)
-        const [existingTenant] = await dbPool.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
+        const [existingTenant] = await db.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
         if (existingTenant.length > 0) {
             console.warn('[REGISTER] Username already exists:', username);
             return res.status(409).json({ message: 'Username already exists.' });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        await dbPool.execute(
+        await db.execute(
             'INSERT INTO tenants (username, password, full_name, email, contact_number, apartment_id, emergency_contact, emergency_contact_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [encryptedUsername, hashedPassword, fullName, encryptedEmail, encryptedContactNumber, apartmentId, encryptedEmergencyContact, encryptedEmergencyContactNumber]
         );
@@ -1036,7 +1016,7 @@ app.get('/api/tenant/visitor-logs/:tenantId', async (req, res) => {
         return res.status(400).json({ message: 'Missing tenantId' });
     }
     try {
-        const [rows] = await dbPool.query(
+        const [rows] = await db.query(
             'SELECT log_id, visit_date, visitor_names, purpose, time_in, time_out FROM visitor_logs WHERE tenant_id = ? ORDER BY visit_date DESC, log_id DESC',
             [tenantId]
         );
@@ -1055,14 +1035,14 @@ app.put('/api/tenant/visitor-logs/:logId/timeout', async (req, res) => {
     }
     try {
         // Only allow setting time_out if not already set
-        const [rows] = await dbPool.query('SELECT time_out FROM visitor_logs WHERE log_id = ?', [logId]);
+        const [rows] = await db.query('SELECT time_out FROM visitor_logs WHERE log_id = ?', [logId]);
         if (!rows.length) {
             return res.status(404).json({ message: 'Visitor log not found' });
         }
         if (rows[0].time_out) {
             return res.status(400).json({ message: 'Time out already set for this log' });
         }
-        await dbPool.query('UPDATE visitor_logs SET time_out = ? WHERE log_id = ?', [timeOut, logId]);
+        await db.query('UPDATE visitor_logs SET time_out = ? WHERE log_id = ?', [timeOut, logId]);
         res.json({ message: 'Time out updated successfully' });
     } catch (err) {
         handleDatabaseError(res, err);
@@ -1077,7 +1057,7 @@ app.post('/api/tenant/submit-visitor', async (req, res) => {
     }
 
     try {
-        const [result] = await dbPool.execute(
+        const [result] = await db.execute(
             'INSERT INTO visitor_logs (tenant_id, apartment_id, unit_owner_name, visitor_names, purpose, visit_date, time_in) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [tenantId, apartmentId, fullName, visitorNames, purpose || null, visitDate, timeIn]
         );
@@ -1090,7 +1070,7 @@ app.post('/api/tenant/submit-visitor', async (req, res) => {
 
 app.get('/api/admin/export-complaints', async (req, res) => {
     try {
-        const [complaints] = await dbPool.execute(
+        const [complaints] = await db.execute(
             'SELECT tc.complaint_id, t.full_name, t.apartment_id, tc.complaint_text, tc.complaint_date, tc.status, tc.admin_message ' +
             'FROM tenant_complaints tc ' +
             'JOIN tenants t ON tc.tenant_id = t.tenant_id ' +
@@ -1129,7 +1109,7 @@ app.post('/api/admin/export-visitor-logs', async (req, res) => {
   if (!token || !(await isValidAdminToken(token, adminId))) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const [logs] = await dbPool.execute('SELECT * FROM visitor_logs');
+  const [logs] = await db.execute('SELECT * FROM visitor_logs');
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Tenant_Visitor_Report'); // <-- Sheet name
   worksheet.columns = [
@@ -1165,7 +1145,7 @@ app.post('/api/admin/export-accounts', async (req, res) => {
       return res.status(401).json({ message: 'Missing adminId' });
     }
     try {
-      const [rows] = await dbPool.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
+      const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
       if (!rows.length) {
         return res.status(401).json({ message: 'Admin not found' });
       }
@@ -1181,7 +1161,7 @@ app.post('/api/admin/export-accounts', async (req, res) => {
   }
 
   try {
-    const [tenants] = await dbPool.execute('SELECT * FROM tenants');
+    const [tenants] = await db.execute('SELECT * FROM tenants');
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Tenant_Account_Reports');
     worksheet.columns = [
@@ -1209,7 +1189,7 @@ async function isValidAdminToken(token, adminId) {
   if (token === DEVELOPER_TOKEN || token === process.env.DEV_TOKEN) return true;
   if (!adminId) return false;
   try {
-    const [rows] = await dbPool.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
+    const [rows] = await db.execute('SELECT admin_token FROM admins WHERE admin_id = ?', [adminId]);
     if (rows.length === 0) return false;
     return await bcrypt.compare(token, rows[0].admin_token);
   } catch (err) {
@@ -1229,7 +1209,7 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
 
   try {
     // Insert unit info (no image fields here)
-    const [result] = await dbPool.query(
+    const [result] = await db.query(
       'INSERT INTO available_units (title, description, price) VALUES (?, ?, ?)',
       [unitName, description, price]
     );
@@ -1237,7 +1217,7 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
 
     // Insert each image into unit_images
     for (const file of files) {
-      await dbPool.query(
+      await db.query(
         'INSERT INTO unit_images (unit_id, image_data, image_type) VALUES (?, ?, ?)',
         [unitId, file.buffer, file.mimetype]
       );
@@ -1252,12 +1232,12 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
 // Replace your current GET /api/available-units with this:
 app.get('/api/available-units', async (req, res) => {
   try {
-    const [units] = await dbPool.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
+    const [units] = await db.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
     const unitIds = units.map(u => u.unit_id);
     let imagesByUnit = {};
 
     if (unitIds.length > 0) {
-      const [images] = await dbPool.query(
+      const [images] = await db.query(
         `SELECT unit_id, image_data, image_type FROM unit_images WHERE unit_id IN (${unitIds.map(() => '?').join(',')})`,
         unitIds
       );
@@ -1291,7 +1271,7 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
 
   try {
     // Insert unit info (no image fields here)
-    const [result] = await dbPool.query(
+    const [result] = await db.query(
       'INSERT INTO available_units (title, description, price) VALUES (?, ?, ?)',
       [unitName, description, price]
     );
@@ -1299,7 +1279,7 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
 
     // Insert each image into unit_images
     for (const file of files) {
-      await dbPool.query(
+      await db.query(
         'INSERT INTO unit_images (unit_id, image_data, image_type) VALUES (?, ?, ?)',
         [unitId, file.buffer, file.mimetype]
       );
@@ -1314,12 +1294,12 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
 // Replace your current GET /api/available-units with this:
 app.get('/api/available-units', async (req, res) => {
   try {
-    const [units] = await dbPool.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
+    const [units] = await db.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
     const unitIds = units.map(u => u.unit_id);
     let imagesByUnit = {};
 
     if (unitIds.length > 0) {
-      const [images] = await dbPool.query(
+      const [images] = await db.query(
         `SELECT unit_id, image_data, image_type FROM unit_images WHERE unit_id IN (${unitIds.map(() => '?').join(',')})`,
         unitIds
       );
@@ -1345,18 +1325,18 @@ app.get('/api/available-units', async (req, res) => {
 
 // POST new inquiry
 app.post('/api/unit-inquiries', async (req, res) => {
-  const { unit_id, sender_name, message } = req.body;
-  if (!unit_id || !sender_name || !message) {
-    return res.status(400).json({ message: 'Missing required fields.' });
+  const { unitId, unitName, senderName, message } = req.body;
+  if (!unitId || !unitName || !senderName || !message) {
+    return res.status(400).json({ message: 'All fields are required.' });
   }
   try {
-    await db.execute(
-      'INSERT INTO unit_inquiries (unit_id, sender_name, message, sender) VALUES (?, ?, ?, ?)',
-      [unit_id, sender_name, message, 'tenant']
+    await db.query(
+      'INSERT INTO unit_inquiries (unit_id, unit_name, sender_name, message) VALUES (?, ?, ?, ?)',
+      [unitId, unitName, senderName, message]
     );
-    res.json({ message: 'Inquiry sent.' });
+    res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ message: 'Database error.' });
+    handleDatabaseError(res, err);
   }
 });
 
@@ -1365,7 +1345,7 @@ app.get('/api/unit-inquiries', async (req, res) => {
   const { name } = req.query;
   if (!name) return res.status(400).json({ message: 'Name is required.' });
   try {
-    const [rows] = await dbPool.query(
+    const [rows] = await db.query(
       'SELECT * FROM unit_inquiries WHERE sender_name = ? ORDER BY created_at',
       [name]
     );
@@ -1378,7 +1358,7 @@ app.get('/api/unit-inquiries', async (req, res) => {
 // GET: Admin fetches all inquiries
 app.get('/api/admin/inbox', async (req, res) => {
   try {
-    const [rows] = await dbPool.query('SELECT * FROM unit_inquiries ORDER BY created_at DESC');
+    const [rows] = await db.query('SELECT * FROM unit_inquiries ORDER BY created_at DESC');
     res.json(rows);
   } catch (err) {
     handleDatabaseError(res, err);
@@ -1390,7 +1370,7 @@ app.post('/api/admin/inbox/reply', async (req, res) => {
   const { inquiryId, reply } = req.body;
   if (!inquiryId || !reply) return res.status(400).json({ message: 'inquiryId and reply are required.' });
   try {
-    await dbPool.query('UPDATE unit_inquiries SET reply = ? WHERE inquiry_id = ?', [reply, inquiryId]);
+    await db.query('UPDATE unit_inquiries SET reply = ? WHERE inquiry_id = ?', [reply, inquiryId]);
     res.json({ success: true });
   } catch (err) {
     handleDatabaseError(res, err);
@@ -1404,369 +1384,12 @@ app.get('/api/unit-inquiries/history', async (req, res) => {
     return res.status(400).json({ message: 'unit_id and sender_name are required.' });
   }
   try {
-    const [rows] = await dbPool.query(
+    const [rows] = await db.query(
       'SELECT * FROM unit_inquiries WHERE unit_id = ? AND sender_name = ? ORDER BY created_at',
       [unit_id, sender_name]
     );
     res.json(rows);
   } catch (err) {
     handleDatabaseError(res, err);
-  }
-});
-
-app.get('/api/tenant/complaints/:complaintId/images', async (req, res) => {
-    const { complaintId } = req.params;
-    if (!complaintId) {
-        return res.status(400).json({ message: 'Complaint ID is required.' });
-    }
-    try {
-        const [images] = await dbPool.execute(
-            'SELECT image_id, image_data, mime_type, filename, image_order FROM complaint_images WHERE complaint_id = ? ORDER BY image_order',
-            [complaintId]
-        );
-        const imageList = images.map(img => ({
-            image_id: img.image_id,
-            filename: img.filename,
-            mime_type: img.mime_type,
-            dataUri: img.image_data ? `data:${img.mime_type};base64,${img.image_data.toString('base64')}` : null,
-            image_order: img.image_order
-        }));
-        res.json(imageList);
-    } catch (error) {
-        console.error('Error fetching complaint images:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.delete('/api/tenant/complaints/:complaintId/images/:imageId', async (req, res) => {
-    const { complaintId, imageId } = req.params;
-    if (!complaintId || !imageId) {
-        return res.status(400).json({ message: 'Complaint ID and Image ID are required.' });
-    }
-    try {
-        const [result] = await dbPool.execute(
-            'DELETE FROM complaint_images WHERE complaint_id = ? AND image_id = ?',
-            [complaintId, imageId]
-        );
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Image not found.' });
-        }
-        res.status(200).json({ message: 'Image deleted successfully.' });
-    } catch (error) {
-        console.error('Error deleting complaint image:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.post('/api/tenant/complaints/:complaintId/images', upload.single('image'), async (req, res) => {
-    const { complaintId } = req.params;
-    if (!complaintId || !req.file) {
-        return res.status(400).json({ message: 'Complaint ID and image file are required.' });
-    }
-    try {
-        const imageData = req.file.buffer;
-        const mimeType = req.file.mimetype;
-        const filename = req.file.originalname;
-
-        // Insert the new image
-        const [result] = await dbPool.execute(
-            'INSERT INTO complaint_images (complaint_id, image_data, mime_type, filename, image_order) VALUES (?, ?, ?, ?, ?)',
-            [complaintId, imageData, mimeType, filename, 1]
-        );
-
-        res.status(201).json({ message: 'Image uploaded successfully.', imageId: result.insertId });
-    } catch (error) {
-        console.error('Error uploading complaint image:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.get('/api/tenant/notifications/:tenantId', async (req, res) => {
-    const { tenantId } = req.params;
-    if (!tenantId) {
-        return res.status(400).json({ message: 'Tenant ID is required.' });
-    }
-    try {
-        const [notifications] = await dbPool.execute(
-            'SELECT * FROM notifications WHERE tenant_id = ? ORDER BY created_at DESC',
-            [tenantId]
-        );
-        res.json(notifications);
-    } catch (error) {
-        console.error('Error fetching tenant notifications:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.post('/api/notifications', async (req, res) => {
-    const { tenantId, title, message } = req.body;
-    if (!tenantId || !title || !message) {
-        return res.status(400).json({ message: 'Tenant ID, title, and message are required.' });
-    }
-    try {
-        await dbPool.execute(
-            'INSERT INTO notifications (tenant_id, title, message) VALUES (?, ?, ?)',
-            [tenantId, title, message]
-        );
-        res.json({ message: 'Notification sent.' });
-    } catch (error) {
-        console.error('Error sending notification:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.get('/api/tenant/complaints/:complaintId/admin-actions', async (req, res) => {
-    const { complaintId } = req.params;
-    if (!complaintId) {
-        return res.status(400).json({ message: 'Complaint ID is required.' });
-    }
-    try {
-        const [actions] = await dbPool.execute(
-            'SELECT * FROM complaint_admin_actions WHERE complaint_id = ? ORDER BY action_time DESC',
-            [complaintId]
-        );
-        res.json(actions);
-    } catch (error) {
-        console.error('Error fetching complaint admin actions:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.post('/api/tenant/complaints/:complaintId/admin-actions', async (req, res) => {
-    const { complaintId } = req.params;
-    const { actionType, oldStatus, newStatus, adminMessage } = req.body;
-    if (!complaintId || !actionType || !oldStatus || !newStatus) {
-        return res.status(400).json({ message: 'Complaint ID, action type, old status, and new status are required.' });
-    }
-    try {
-        await dbPool.execute(
-            'INSERT INTO complaint_admin_actions (complaint_id, admin_id, action_type, old_status, new_status, action_message) VALUES (?, ?, ?, ?, ?, ?)',
-            [complaintId, null, actionType, oldStatus, newStatus, adminMessage]
-        );
-        res.json({ message: 'Admin action recorded.' });
-    } catch (error) {
-        console.error('Error recording admin action:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.get('/api/tenant/complaints/:complaintId/status-history', async (req, res) => {
-    const { complaintId } = req.params;
-    if (!complaintId) {
-        return res.status(400).json({ message: 'Complaint ID is required.' });
-    }
-    try {
-        const [statusHistory] = await dbPool.execute(
-            'SELECT * FROM complaint_status_history WHERE complaint_id = ? ORDER BY change_time DESC',
-            [complaintId]
-        );
-        res.json(statusHistory);
-    } catch (error) {
-        console.error('Error fetching complaint status history:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.post('/api/tenant/complaints/:complaintId/status-history', async (req, res) => {
-    const { complaintId } = req.params;
-    const { status, adminMessage } = req.body;
-    if (!complaintId || !status) {
-        return res.status(400).json({ message: 'Complaint ID and status are required.' });
-    }
-    try {
-        await dbPool.execute(
-            'INSERT INTO complaint_status_history (complaint_id, status, admin_message) VALUES (?, ?, ?)',
-            [complaintId, status, adminMessage]
-        );
-        res.json({ message: 'Status history recorded.' });
-    } catch (error) {
-        console.error('Error recording status history:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.get('/api/tenant/complaints/:complaintId/details', async (req, res) => {
-    const { complaintId } = req.params;
-    if (!complaintId) {
-        return res.status(400).json({ message: 'Complaint ID is required.' });
-    }
-    try {
-        const [details] = await dbPool.execute(
-            'SELECT tc.complaint_id, tc.complaint_text, tc.complaint_date, tc.status, tc.admin_message, ' +
-            't.full_name, t.apartment_id, t.email, t.contact_number, ' +
-            'GROUP_CONCAT(DISTINCT CONCAT_WS(":", ci.image_id, ci.filename, ci.mime_type) ORDER BY ci.image_order ASC SEPARATOR ";") AS images ' +
-            'FROM tenant_complaints tc ' +
-            'JOIN tenants t ON tc.tenant_id = t.tenant_id ' +
-            'LEFT JOIN complaint_images ci ON tc.complaint_id = ci.complaint_id ' +
-            'WHERE tc.complaint_id = ? ' +
-            'GROUP BY tc.complaint_id',
-            [complaintId]
-        );
-        if (details.length > 0) {
-            // Parse the images field
-            details[0].images = details[0].images ? details[0].images.split(';').map(img => {
-                const [image_id, filename, mime_type] = img.split(':');
-                return { image_id, filename, mime_type, dataUri: `data:${mime_type};base64,${image_id}` };
-            }) : [];
-            res.json(details[0]);
-        } else {
-            res.status(404).json({ message: 'Complaint not found.' });
-        }
-    } catch (error) {
-        console.error('Error fetching complaint details:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.put('/api/tenant/complaints/:complaintId/details', async (req, res) => {
-    const { complaintId } = req.params;
-    const { complaintText, status, adminMessage } = req.body;
-
-    if (!complaintText && !status && !adminMessage) {
-        return res.status(400).json({ message: 'At least one of complaintText, status, or adminMessage is required.' });
-    }
-
-    try {
-        const updates = [];
-        const params = [];
-
-        if (complaintText) {
-            updates.push('complaint_text = ?');
-            params.push(complaintText);
-        }
-        if (status) {
-            updates.push('status = ?');
-            params.push(status);
-        }
-        if (adminMessage) {
-            updates.push('admin_message = ?');
-            params.push(adminMessage);
-        }
-
-        params.push(complaintId);
-
-        await dbPool.execute(
-            `UPDATE tenant_complaints SET ${updates.join(', ')} WHERE complaint_id = ?`,
-            params
-        );
-
-        res.json({ message: 'Complaint details updated.' });
-    } catch (error) {
-        console.error('Error updating complaint details:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.get('/api/tenant/complaints/:complaintId/admin-replies', async (req, res) => {
-    const { complaintId } = req.params;
-    if (!complaintId) {
-        return res.status(400).json({ message: 'Complaint ID is required.' });
-    }
-    try {
-        const [replies] = await dbPool.execute(
-            'SELECT * FROM unit_inquiries WHERE complaint_id = ? AND sender = "admin" ORDER BY created_at',
-            [complaintId]
-        );
-        res.json(replies);
-    } catch (error) {
-        console.error('Error fetching admin replies:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.post('/api/tenant/complaints/:complaintId/admin-replies', async (req, res) => {
-    const { complaintId } = req.params;
-    const { message } = req.body;
-    if (!complaintId || !message) {
-        return res.status(400).json({ message: 'Complaint ID and message are required.' });
-    }
-    try {
-        await dbPool.execute(
-            'INSERT INTO unit_inquiries (complaint_id, message, sender) VALUES (?, ?, "admin")',
-            [complaintId, message]
-        );
-        res.json({ message: 'Reply sent.' });
-    } catch (error) {
-        console.error('Error sending admin reply:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.get('/api/tenant/complaints/:complaintId/tenant-replies', async (req, res) => {
-    const { complaintId } = req.params;
-    if (!complaintId) {
-        return res.status(400).json({ message: 'Complaint ID is required.' });
-    }
-    try {
-        const [replies] = await dbPool.execute(
-            'SELECT * FROM unit_inquiries WHERE complaint_id = ? AND sender = "tenant" ORDER BY created_at',
-            [complaintId]
-        );
-        res.json(replies);
-    } catch (error) {
-        console.error('Error fetching tenant replies:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.post('/api/tenant/complaints/:complaintId/tenant-replies', async (req, res) => {
-    const { complaintId } = req.params;
-    const { message } = req.body;
-    if (!complaintId || !message) {
-        return res.status(400).json({ message: 'Complaint ID and message are required.' });
-    }
-    try {
-        await dbPool.execute(
-            'INSERT INTO unit_inquiries (complaint_id, message, sender) VALUES (?, ?, "tenant")',
-            [complaintId, message]
-        );
-        res.json({ message: 'Reply sent.' });
-    } catch (error) {
-        console.error('Error sending tenant reply:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.get('/api/tenant/complaints/:complaintId/chat-history', async (req, res) => {
-    const { complaintId } = req.params;
-    if (!complaintId) {
-        return res.status(400).json({ message: 'Complaint ID is required.' });
-    }
-    try {
-        const [chatHistory] = await dbPool.execute(
-            'SELECT * FROM unit_inquiries WHERE complaint_id = ? ORDER BY created_at',
-            [complaintId]
-        );
-        res.json(chatHistory);
-    } catch (error) {
-        console.error('Error fetching chat history:', error);
-        handleDatabaseError(res, error);
-    }
-});
-
-app.post('/api/unit-inquiries/reply', async (req, res) => {
-  const { inquiry_id, message, sender } = req.body; // sender: 'admin' or 'tenant'
-  if (!inquiry_id || !message || !sender) {
-    return res.status(400).json({ message: 'Missing required fields.' });
-  }
-  try {
-    // Get the original inquiry to fetch unit_id and sender_name
-    const [inquiryRows] = await db.execute(
-      'SELECT unit_id, sender_name FROM unit_inquiries WHERE inquiry_id = ?',
-      [inquiry_id]
-    );
-    if (inquiryRows.length === 0) {
-      return res.status(404).json({ message: 'Inquiry not found.' });
-    }
-    const { unit_id, sender_name } = inquiryRows[0];
-    // Insert reply as a new message
-    await db.execute(
-      'INSERT INTO unit_inquiries (unit_id, sender_name, message, sender) VALUES (?, ?, ?, ?)',
-     
-      [unit_id, sender_name, message, sender]
-    );
-    res.json({ message: 'Reply sent.' });
-  } catch (err) {
-    res.status(500).json({ message: 'Database error.' });
   }
 });
