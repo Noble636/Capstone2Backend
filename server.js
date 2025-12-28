@@ -1358,7 +1358,12 @@ app.get('/api/unit-inquiries', async (req, res) => {
 // GET: Admin fetches all inquiries
 app.get('/api/admin/inbox', async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT * FROM unit_inquiries ORDER BY created_at DESC');
+    const [rows] = await db.query(
+      `SELECT uim.unit_id, au.title AS unit_name, uim.sender_name, uim.message, uim.created_at
+       FROM unit_inquiry_messages uim
+       JOIN available_units au ON uim.unit_id = au.unit_id
+       ORDER BY uim.created_at DESC`
+    );
     res.json(rows);
   } catch (err) {
     handleDatabaseError(res, err);
