@@ -1496,13 +1496,13 @@ app.post('/api/unit-reservations', async (req, res) => {
 app.get('/api/admin/reservations', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT r.*, u.title, u.price, i.image_data, i.image_type
+      `SELECT r.*, u.title, u.price,
+        (SELECT image_data FROM unit_images WHERE unit_id = r.unit_id LIMIT 1) AS image_data,
+        (SELECT image_type FROM unit_images WHERE unit_id = r.unit_id LIMIT 1) AS image_type
        FROM unit_reservations r
-       JOIN available_units u ON r.unit_id = u.unit_id
-       LEFT JOIN unit_images i ON u.unit_id = i.unit_id
-       GROUP BY r.reservation_id`
+       LEFT JOIN available_units u ON r.unit_id = u.unit_id
+       ORDER BY r.created_at DESC`
     );
-    // Convert image_data to base64
     const reservations = rows.map(row => ({
       ...row,
       image: row.image_data
@@ -1511,7 +1511,8 @@ app.get('/api/admin/reservations', async (req, res) => {
     }));
     res.json(reservations);
   } catch (err) {
-    handleDatabaseError(res, err);
+    console.error(err); // Add this for debugging
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
 
