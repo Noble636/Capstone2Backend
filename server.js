@@ -767,24 +767,21 @@ app.put('/api/tenant/profile/:tenantId', async (req, res) => {
 });
 
 app.post('/api/admin/forgot-password/verify-token', async (req, res) => {
-    const { developerToken, username } = req.body;
-
-    if (!developerToken) {
-        return res.status(400).json({ message: 'Developer token is required.' });
-    }
-
-    if (developerToken === DEVELOPER_TOKEN) {
-        // allow
-        return res.status(200).json({ message: 'Developer token verified.' });
-    } else {
-        const [admins] = await db.execute('SELECT * FROM admins WHERE username = ?', [username]);
-        if (admins.length > 0 && await bcrypt.compare(developerToken, admins[0].admin_token)) {
-            // allow
-            return res.status(200).json({ message: 'Admin token verified.' });
-        } else {
-            // deny
-            return res.status(401).json({ message: 'Invalid developer or admin token.' });
+    const { token } = req.body;
+    try {
+        // Check developer token
+        if (token === process.env.DEVELOPER_TOKEN) {
+            return res.json({ message: 'Token verified.' });
         }
+        // Check admin tokens in the database
+        const [rows] = await db.query('SELECT * FROM admins WHERE admin_token = ?', [token]);
+        if (rows.length > 0) {
+            return res.json({ message: 'Token verified.' });
+        }
+        return res.status(401).json({ message: 'Invalid token.' });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: 'Server error.' });
     }
 });
 
