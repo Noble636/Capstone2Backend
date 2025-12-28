@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS `visitor_logs` (
   `purpose` varchar(255) DEFAULT NULL,
   `visit_date` date NOT NULL,
   `time_in` time NOT NULL,
+  `time_out` time DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`log_id`),
   KEY `tenant_id` (`tenant_id`),
