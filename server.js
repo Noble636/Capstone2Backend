@@ -1514,3 +1514,21 @@ app.get('/api/admin/reservations', async (req, res) => {
     handleDatabaseError(res, err);
   }
 });
+
+// Cancel reservation and unhide the unit
+app.delete('/api/admin/reservations/:reservationId', async (req, res) => {
+  const { reservationId } = req.params;
+  try {
+    // Get the unit_id before deleting
+    const [[reservation]] = await db.query('SELECT unit_id FROM unit_reservations WHERE reservation_id = ?', [reservationId]);
+    if (!reservation) return res.status(404).json({ message: 'Reservation not found.' });
+
+    // Delete the reservation
+    await db.query('DELETE FROM unit_reservations WHERE reservation_id = ?', [reservationId]);
+    // Unhide the unit
+    await db.query('UPDATE available_units SET hidden=0 WHERE unit_id = ?', [reservation.unit_id]);
+    res.json({ message: 'Reservation cancelled and unit is now available.' });
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
