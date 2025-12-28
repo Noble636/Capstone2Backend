@@ -1411,18 +1411,19 @@ app.get('/api/unit-inquiries/history', async (req, res) => {
 
 // POST new inquiry message
 app.post('/api/unit-inquiry-messages', async (req, res) => {
-  const { unit_id, sender_name, sender_type, message } = req.body;
+  const { unit_id, sender_name, sender_type, message, recipient_name } = req.body;
   if (!unit_id || !sender_name || !sender_type || !message) {
     return res.status(400).json({ message: 'Missing required fields' });
   }
   try {
     await db.query(
-      'INSERT INTO unit_inquiry_messages (unit_id, sender_name, sender_type, message) VALUES (?, ?, ?, ?)',
-      [unit_id, sender_name, sender_type, message]
+      `INSERT INTO unit_inquiry_messages (unit_id, sender_name, sender_type, message, recipient_name)
+       VALUES (?, ?, ?, ?, ?)`,
+      [unit_id, sender_name, sender_type, message, recipient_name || null]
     );
-    res.status(201).json({ message: 'Message sent' });
+    res.json({ success: true });
   } catch (err) {
-    handleDatabaseError(res, err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1446,7 +1447,6 @@ app.get('/api/unit-inquiry-messages', async (req, res) => {
     );
     res.json(messages);
   } catch (err) {
-    console.error('Error fetching inquiry messages:', err);
     res.status(500).json({ error: err.message });
   }
 });
