@@ -1232,94 +1232,24 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
 // Replace your current GET /api/available-units with this:
 app.get('/api/available-units', async (req, res) => {
   try {
-    const [units] = await db.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
-    const unitIds = units.map(u => u.unit_id);
-    let imagesByUnit = {};
-
-    if (unitIds.length > 0) {
-      const [images] = await db.query(
-        `SELECT unit_id, image_data, image_type FROM unit_images WHERE unit_id IN (${unitIds.map(() => '?').join(',')})`,
-        unitIds
-      );
-      for (const img of images) {
-        const dataUri = img.image_data
-          ? `data:${img.image_type};base64,${img.image_data.toString('base64')}`
-          : null;
-        if (!imagesByUnit[img.unit_id]) imagesByUnit[img.unit_id] = [];
-        imagesByUnit[img.unit_id].push({ dataUri });
-      }
-    }
-
-    const result = units.map(unit => ({
-      ...unit,
-      images: imagesByUnit[unit.unit_id] || []
-    }));
-
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ message: 'Database error.' });
-  }
-});
-
-app.post('/api/admin/available-units', upload.array('images', 5), async (req, res) => {
-  const { unitName, description, price } = req.body;
-  const files = req.files || [];
-
-  if (!unitName || !price) {
-    return res.status(400).json({ message: 'Unit name and price are required.' });
-  }
-
-  try {
-    // Insert unit info (no image fields here)
-    const [result] = await db.query(
-      'INSERT INTO available_units (title, description, price) VALUES (?, ?, ?)',
-      [unitName, description, price]
+    const [units] = await db.query(
+      `SELECT u.*, 
+        (SELECT image_data FROM unit_images WHERE unit_id = u.unit_id LIMIT 1) AS image_data,
+        (SELECT image_type FROM unit_images WHERE unit_id = u.unit_id LIMIT 1) AS image_type
+       FROM available_units u
+       WHERE u.hidden = 0
+       ORDER BY u.created_at DESC`
     );
-    const unitId = result.insertId;
-
-    // Insert each image into unit_images
-    for (const file of files) {
-      await db.query(
-        'INSERT INTO unit_images (unit_id, image_data, image_type) VALUES (?, ?, ?)',
-        [unitId, file.buffer, file.mimetype]
-      );
-    }
-
-    res.json({ success: true, unitId });
-  } catch (err) {
-    res.status(500).json({ message: 'Database error.' });
-  }
-});
-
-// Replace your current GET /api/available-units with this:
-app.get('/api/available-units', async (req, res) => {
-  try {
-    const [units] = await db.query('SELECT unit_id, title, description, price FROM available_units ORDER BY created_at DESC');
-    const unitIds = units.map(u => u.unit_id);
-    let imagesByUnit = {};
-
-    if (unitIds.length > 0) {
-      const [images] = await db.query(
-        `SELECT unit_id, image_data, image_type FROM unit_images WHERE unit_id IN (${unitIds.map(() => '?').join(',')})`,
-        unitIds
-      );
-      for (const img of images) {
-        const dataUri = img.image_data
-          ? `data:${img.image_type};base64,${img.image_data.toString('base64')}`
-          : null;
-        if (!imagesByUnit[img.unit_id]) imagesByUnit[img.unit_id] = [];
-        imagesByUnit[img.unit_id].push({ dataUri });
-      }
-    }
-
-    const result = units.map(unit => ({
-      ...unit,
-      images: imagesByUnit[unit.unit_id] || []
+    // Convert image_data to base64
+    const result = units.map(u => ({
+      ...u,
+      images: u.image_data
+        ? [{ dataUri: `data:${u.image_type};base64,${u.image_data.toString('base64')}` }]
+        : []
     }));
-
     res.json(result);
   } catch (err) {
-    res.status(500).json({ message: 'Database error.' });
+    handleDatabaseError(res, err);
   }
 });
 
@@ -1541,3 +1471,46 @@ const fetchConversations = () => {
       console.error('Error fetching conversations:', err);
     });
 };
+
+// POST: Create a reservation and hide the unit
+app.post('/api/unit-reservations', async (req, res) => {
+  const { unit_id, name, contact, other_info } = req.body;
+  if (!unit_id || !name || !contact) {
+    return res.status(400).json({ message: 'Missing required fields.' });
+  }
+  try {
+    // Insert reservation
+    await db.query(
+      'INSERT INTO unit_reservations (unit_id, name, contact, other_info) VALUES (?, ?, ?, ?)',
+      [unit_id, name, contact, other_info || null]
+    );
+    // Hide the unit (set hidden=1)
+    await db.query('UPDATE available_units SET hidden=1 WHERE unit_id = ?', [unit_id]);
+    res.json({ message: 'Reservation successful and unit hidden.' });
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
+
+// GET: Admin fetches all reservations
+app.get('/api/admin/reservations', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT r.*, u.title, u.price, i.image_data, i.image_type
+       FROM unit_reservations r
+       JOIN available_units u ON r.unit_id = u.unit_id
+       LEFT JOIN unit_images i ON u.unit_id = i.unit_id
+       GROUP BY r.reservation_id`
+    );
+    // Convert image_data to base64
+    const reservations = rows.map(row => ({
+      ...row,
+      image: row.image_data
+        ? `data:${row.image_type};base64,${row.image_data.toString('base64')}`
+        : null
+    }));
+    res.json(reservations);
+  } catch (err) {
+    handleDatabaseError(res, err);
+  }
+});
