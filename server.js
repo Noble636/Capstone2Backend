@@ -1533,3 +1533,47 @@ app.delete('/api/admin/reservations/:reservationId', async (req, res) => {
     handleDatabaseError(res, err);
   }
 });
+
+app.get('/api/admin/export-reservations', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT r.*, u.title, u.price
+       FROM unit_reservations r
+       LEFT JOIN available_units u ON r.unit_id = u.unit_id
+       ORDER BY r.created_at DESC`
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Reservations');
+
+    worksheet.columns = [
+      { header: 'Reservation ID', key: 'reservation_id', width: 15 },
+      { header: 'Unit', key: 'title', width: 20 },
+      { header: 'Price', key: 'price', width: 12 },
+      { header: 'Name', key: 'name', width: 20 },
+      { header: 'Contact', key: 'contact', width: 20 },
+      { header: 'Other Info', key: 'other_info', width: 30 },
+      { header: 'Date', key: 'created_at', width: 22 }
+    ];
+
+    rows.forEach(row => {
+      worksheet.addRow({
+        reservation_id: row.reservation_id,
+        title: row.title,
+        price: row.price,
+        name: row.name,
+        contact: row.contact,
+        other_info: row.other_info,
+        created_at: row.created_at
+      });
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=Reservations_Report.xlsx');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to generate report.' });
+  }
+});
