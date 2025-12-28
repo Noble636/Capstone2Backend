@@ -1449,3 +1449,18 @@ app.delete('/api/admin/available-units/:unitId', async (req, res) => {
     res.status(500).json({ message: 'Database error.' });
   }
 });
+
+// Add to your server.js (backend)
+app.delete('/api/admin/conversation', async (req, res) => {
+  const { unit_id, tenant_name } = req.body;
+  if (!unit_id || !tenant_name) return res.status(400).json({ message: 'Missing unit_id or tenant_name' });
+  try {
+    await db.execute(
+      'DELETE FROM unit_inquiry_messages WHERE unit_id = ? AND sender_name = ?',
+      [unit_id, tenant_name]
+    );
+    res.status(200).json({ message: 'Conversation deleted' });
+  } catch (err) {
+    res.status(500).json({ message: 'Database error' });
+  }
+});
