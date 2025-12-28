@@ -153,5 +153,8 @@ CREATE TABLE IF NOT EXISTS unit_inquiry_messages (
   sender_type ENUM('tenant', 'admin') NOT NULL,
   message TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  recipient_name VARCHAR(255) DEFAULT NULL,
   FOREIGN KEY (unit_id) REFERENCES available_units(unit_id) ON DELETE CASCADE
 );
+
+SELECT u.title AS unit_name

@@ -1358,7 +1358,7 @@ app.get('/api/unit-inquiries', async (req, res) => {
 // GET: Admin fetches all inquiries
 app.get('/api/admin/inbox', async (req, res) => {
   const sql = `
-    SELECT m.*, u.unit_name
+    SELECT m.*, u.title AS unit_name
     FROM unit_inquiry_messages m
     JOIN available_units u ON m.unit_id = u.unit_id
     WHERE 
