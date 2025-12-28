@@ -1368,7 +1368,10 @@ app.get('/api/admin/inbox', (req, res) => {
     ORDER BY m.unit_id, m.created_at DESC
   `;
   db.query(sql, (err, results) => {
-    if (err) return res.status(500).json({ error: err });
+    if (err) {
+      console.error('INBOX SQL ERROR:', err); // <--- add this
+      return res.status(500).json({ error: err.message });
+    }
     res.json(results);
   });
 });
