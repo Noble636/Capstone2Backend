@@ -1483,3 +1483,55 @@ app.post('/api/admin/send-message', (req, res) => {
     res.json({ success: true });
   });
 });
+
+const fetchConversations = () => {
+  fetch('https://tenantportal-backend.onrender.com/api/admin/inbox')
+    .then(res => {
+      if (!res.ok) {
+        throw new Error('Failed to fetch conversations');
+      }
+      return res.json();
+    })
+    .then(data => {
+      if (!Array.isArray(data)) {
+        setConversations([]);
+        return;
+      }
+      // ...existing grouping logic...
+      const tenantPairs = new Set();
+      data.forEach(msg => {
+        if (msg.sender_type && msg.sender_type.trim().toLowerCase() === 'tenant') {
+          tenantPairs.add(`${msg.unit_id}|||${msg.sender_name}`);
+        }
+      });
+
+      const convList = [];
+      tenantPairs.forEach(pair => {
+        const [unit_id, tenant_name] = pair.split('|||');
+        const convMsgs = data.filter(
+          m =>
+            m.unit_id == unit_id &&
+            (m.sender_name === tenant_name || (m.sender_type && m.sender_type.trim().toLowerCase() === 'admin'))
+        );
+        if (convMsgs.length > 0) {
+          const latest = convMsgs.reduce((a, b) =>
+            new Date(a.created_at) > new Date(b.created_at) ? a : b
+          );
+          convList.push({
+            ...latest,
+            sender_name: tenant_name,
+            last_message: latest.message,
+            unit_id,
+          });
+        }
+      });
+
+      convList.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setConversations(convList);
+    })
+    .catch(err => {
+      setConversations([]);
+      // Optionally, set an error state to show a message in the UI
+      console.error('Error fetching conversations:', err);
+    });
+};
