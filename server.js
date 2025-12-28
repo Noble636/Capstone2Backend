@@ -1430,18 +1430,24 @@ app.post('/api/unit-inquiry-messages', async (req, res) => {
 app.get('/api/unit-inquiry-messages', async (req, res) => {
   const { unit_id, sender_name } = req.query;
   if (!unit_id || !sender_name) {
-    return res.status(400).json({ message: 'Missing required fields' });
+    return res.status(400).json({ message: 'Missing unit_id or sender_name' });
   }
   try {
-    const [rows] = await db.query(
-      `SELECT * FROM unit_inquiry_messages 
-       WHERE unit_id = ? AND (sender_name = ? OR sender_type = 'admin')
+    const [messages] = await db.query(
+      `SELECT * FROM unit_inquiry_messages
+       WHERE unit_id = ?
+         AND (
+           (sender_type = 'tenant' AND sender_name = ?)
+           OR
+           (sender_type = 'admin' AND recipient_name = ?)
+         )
        ORDER BY created_at ASC`,
-      [unit_id, sender_name]
+      [unit_id, sender_name, sender_name]
     );
-    res.json(rows);
+    res.json(messages);
   } catch (err) {
-    handleDatabaseError(res, err);
+    console.error('Error fetching inquiry messages:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
