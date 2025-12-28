@@ -1358,15 +1358,15 @@ app.get('/api/unit-inquiries', async (req, res) => {
 // GET: Admin fetches all inquiries
 app.get('/api/admin/inbox', async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `SELECT uim.unit_id, au.title AS unit_name, uim.sender_name, uim.message, uim.created_at
-       FROM unit_inquiry_messages uim
-       JOIN available_units au ON uim.unit_id = au.unit_id
-       ORDER BY uim.created_at DESC`
-    );
-    res.json(rows);
+    const [rows] = await db.execute(`
+      SELECT uim.unit_id, au.title AS unit_name, uim.sender_name, uim.sender_type, uim.message, uim.created_at
+      FROM unit_inquiry_messages uim
+      JOIN available_units au ON uim.unit_id = au.unit_id
+      ORDER BY uim.created_at DESC
+    `);
+    res.json(rows); // <-- This must include sender_type in each object!
   } catch (err) {
-    handleDatabaseError(res, err);
+    res.status(500).json({ message: 'Database error' });
   }
 });
 
