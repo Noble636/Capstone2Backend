@@ -1356,7 +1356,7 @@ app.get('/api/unit-inquiries', async (req, res) => {
 });
 
 // GET: Admin fetches all inquiries
-app.get('/api/admin/inbox', (req, res) => {
+app.get('/api/admin/inbox', async (req, res) => {
   const sql = `
     SELECT m.*, u.unit_name
     FROM unit_inquiry_messages m
@@ -1367,13 +1367,13 @@ app.get('/api/admin/inbox', (req, res) => {
       (m.sender_type = 'admin' AND m.recipient_name IS NOT NULL)
     ORDER BY m.unit_id, m.created_at DESC
   `;
-  db.query(sql, (err, results) => {
-    if (err) {
-      console.error('INBOX SQL ERROR:', err); // <--- add this
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const [results] = await db.query(sql);
     res.json(results);
-  });
+  } catch (err) {
+    console.error('INBOX SQL ERROR:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST: Admin replies to an inquiry
