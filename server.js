@@ -1356,18 +1356,21 @@ app.get('/api/unit-inquiries', async (req, res) => {
 });
 
 // GET: Admin fetches all inquiries
-app.get('/api/admin/inbox', async (req, res) => {
-  try {
-    const [rows] = await db.execute(`
-      SELECT uim.unit_id, au.title AS unit_name, uim.sender_name, uim.sender_type, uim.message, uim.created_at
-      FROM unit_inquiry_messages uim
-      JOIN available_units au ON uim.unit_id = au.unit_id
-      ORDER BY uim.created_at DESC
-    `);
-    res.json(rows); // <-- This must include sender_type in each object!
-  } catch (err) {
-    res.status(500).json({ message: 'Database error' });
-  }
+app.get('/api/admin/inbox', (req, res) => {
+  const sql = `
+    SELECT m.*, u.unit_name
+    FROM unit_inquiry_messages m
+    JOIN available_units u ON m.unit_id = u.unit_id
+    WHERE 
+      (m.sender_type = 'tenant')
+      OR
+      (m.sender_type = 'admin' AND m.recipient_name IS NOT NULL)
+    ORDER BY m.unit_id, m.created_at DESC
+  `;
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json({ error: err });
+    res.json(results);
+  });
 });
 
 // POST: Admin replies to an inquiry
@@ -1463,4 +1466,17 @@ app.delete('/api/admin/conversation', async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: 'Database error' });
   }
+});
+
+app.post('/api/admin/send-message', (req, res) => {
+  const { unit_id, message, sender_name, recipient_name } = req.body;
+  const sender_type = 'admin';
+  const sql = `
+    INSERT INTO unit_inquiry_messages (unit_id, message, sender_name, sender_type, recipient_name, created_at)
+    VALUES (?, ?, ?, ?, ?, NOW())
+  `;
+  db.query(sql, [unit_id, message, sender_name, sender_type, recipient_name], (err, result) => {
+    if (err) return res.status(500).json({ error: err });
+    res.json({ success: true });
+  });
 });
