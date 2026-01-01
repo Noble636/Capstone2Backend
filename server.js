@@ -227,6 +227,7 @@ app.post('/api/tenant/forgot-password/verify-username', async (req, res) => {
         if (user.length === 0) {
             return res.status(404).json({ message: 'Username not found.' });
         }
+
         // Only decrypt if value is valid hex
         const decryptSafe = (val) => (isHex(val) ? decryptDeterministic(val) : val);
         const userDetails = {
@@ -235,7 +236,20 @@ app.post('/api/tenant/forgot-password/verify-username', async (req, res) => {
             full_name: decryptSafe(user[0].full_name),
             apartment_id: user[0].apartment_id
         };
-        // ...send OTP, etc...
+
+        // Generate OTP and expiration
+        const otp = generateOTP();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+
+        // Insert OTP into password_reset_otps table
+        await db.execute(
+            'INSERT INTO password_reset_otps (username, otp, expires_at, is_verified) VALUES (?, ?, ?, 0)',
+            [encryptedUsername, otp, expiresAt]
+        );
+
+        // Send OTP email
+        await sendOtpEmail(userDetails.email, otp);
+
         res.status(200).json({ userDetails, message: 'An OTP has been sent to your registered email address.' });
     } catch (error) {
         console.error('Error verifying tenant username:', error);
@@ -744,6 +758,7 @@ app.post('/api/admin/forgot-password/verify-username', async (req, res) => {
         if (admin.length === 0) {
             return res.status(404).json({ message: 'Admin username not found.' });
         }
+
         // Only decrypt if value is valid hex
         const decryptSafe = (val) => (isHex(val) ? decryptDeterministic(val) : val);
         const adminDetails = {
@@ -751,7 +766,20 @@ app.post('/api/admin/forgot-password/verify-username', async (req, res) => {
             email: decryptSafe(admin[0].email),
             full_name: decryptSafe(admin[0].full_name)
         };
-        // ...send OTP, etc...
+
+        // Generate OTP and expiration
+        const otp = generateOTP();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+
+        // Insert OTP into password_reset_otps table
+        await db.execute(
+            'INSERT INTO password_reset_otps (username, otp, expires_at, is_verified) VALUES (?, ?, ?, 0)',
+            [encryptedUsername, otp, expiresAt]
+        );
+
+        // Send OTP email
+        await sendOtpEmail(adminDetails.email, otp);
+
         res.status(200).json({ adminDetails, message: 'An OTP has been sent to your registered email address.' });
     } catch (error) {
         console.error('Error verifying admin username:', error);
@@ -763,7 +791,7 @@ app.post('/api/admin/forgot-password/verify-otp', async (req, res) => {
     const { username, otp } = req.body;
 
     if (!username || !otp) {
-        return res.status(400).json({ message: 'Username and OTP are required.' });
+        return res.status(400).json({ message: 'Username and OTP are required' });
     }
 
     try {
