@@ -328,9 +328,10 @@ app.post('/api/tenant/forgot-password/reset-password', async (req, res) => {
     }
 
     try {
+        const encryptedUsername = encryptDeterministic(username);
         const [otpResults] = await db.execute(
-            'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW()',
-            [username]
+            'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW() AND is_verified = 1',
+            [encryptedUsername]
         );
 
         if (otpResults.length === 0) {
@@ -338,13 +339,43 @@ app.post('/api/tenant/forgot-password/reset-password', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await db.execute('UPDATE tenants SET password = ? WHERE username = ?', [hashedPassword, username]);
+        await db.execute('UPDATE tenants SET password = ? WHERE username = ?', [hashedPassword, encryptedUsername]);
 
-        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [username]);
+        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [encryptedUsername]);
 
         res.status(200).json({ message: 'Password reset successfully' });
     } catch (error) {
         console.error('Error during password reset:', error);
+        handleDatabaseError(res, error);
+    }
+});
+
+app.post('/api/admin/forgot-password/reset-password', async (req, res) => {
+    const { username, newPassword } = req.body;
+
+    if (!username || !newPassword) {
+        return res.status(400).json({ message: 'Username and new password are required.' });
+    }
+
+    try {
+        const encryptedUsername = encryptDeterministic(username);
+        const [otpResults] = await db.execute(
+            'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW() AND is_verified = 1',
+            [encryptedUsername]
+        );
+
+        if (otpResults.length === 0) {
+            return res.status(400).json({ message: 'OTP verification required or expired.' });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await db.execute('UPDATE admins SET password = ? WHERE username = ?', [hashedPassword, encryptedUsername]);
+
+        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [encryptedUsername]);
+
+        res.status(200).json({ message: 'Admin password reset successfully!' });
+    } catch (error) {
+        console.error('Error during admin password reset:', error);
         handleDatabaseError(res, error);
     }
 });
@@ -865,9 +896,10 @@ app.post('/api/admin/forgot-password/reset-password', async (req, res) => {
     }
 
     try {
+        const encryptedUsername = encryptDeterministic(username);
         const [otpResults] = await db.execute(
-            'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW()',
-            [username]
+            'SELECT * FROM password_reset_otps WHERE username = ? AND expires_at > NOW() AND is_verified = 1',
+            [encryptedUsername]
         );
 
         if (otpResults.length === 0) {
@@ -875,9 +907,9 @@ app.post('/api/admin/forgot-password/reset-password', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await db.execute('UPDATE admins SET password = ? WHERE username = ?', [hashedPassword, username]);
+        await db.execute('UPDATE admins SET password = ? WHERE username = ?', [hashedPassword, encryptedUsername]);
 
-        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [username]);
+        await db.execute('DELETE FROM password_reset_otps WHERE username = ?', [encryptedUsername]);
 
         res.status(200).json({ message: 'Admin password reset successfully!' });
     } catch (error) {
