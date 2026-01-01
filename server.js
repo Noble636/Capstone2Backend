@@ -9,6 +9,7 @@ const multer = require('multer');
 const upload = multer();
 const crypto = require('crypto');
 const ExcelJS = require('exceljs');
+const { sendOtpEmail } = require('./mailer');
 dotenv.config();
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012';
