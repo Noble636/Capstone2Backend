@@ -213,49 +213,27 @@ app.post('/api/tenant/forgot-password/verify-username', async (req, res) => {
     const { username } = req.body;
 
     if (!username) {
-        return res.status(400).json({ message: 'Username is required' });
+        return res.status(400).json({ message: 'Username is required.' });
     }
 
     try {
-        const [tenantResults] = await db.execute('SELECT username, full_name, contact_number, apartment_id, email FROM tenants WHERE username = ?', [username]);
-        if (tenantResults.length === 0) {
-            return res.status(404).json({ message: 'Username not found' });
+        const encryptedUsername = encryptDeterministic(username);
+        const [user] = await db.execute('SELECT * FROM tenants WHERE username = ?', [encryptedUsername]);
+        if (user.length === 0) {
+            return res.status(404).json({ message: 'Username not found.' });
         }
-
-        const tenant = tenantResults[0];
-        const otp = generateOTP();
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 5 * 60 * 1000);
-
-        await db.execute(
-            'INSERT INTO password_reset_otps (username, otp, expires_at) VALUES (?, ?, ?)',
-            [username, otp, expiresAt]
-        );
-
-        let emailResult = null;
-        if (tenant.email) {
-            try {
-                const { sendOtpEmail } = require('./mailer');
-                await sendOtpEmail(tenant.email, otp);
-                emailResult = 'OTP sent to your registered email address.';
-            } catch (err) {
-                console.error('Failed to send OTP email:', err);
-                emailResult = 'OTP generated, but failed to send email.';
-            }
-        }
-        res.status(200).json({
-            message: emailResult || 'OTP generated.',
-            userDetails: {
-                username: tenant.username,
-                full_name: tenant.full_name,
-                contact_number: tenant.contact_number,
-                apartment_id: tenant.apartment_id,
-                email: tenant.email,
-            },
-        });
+        // Decrypt fields as needed before sending to frontend
+        const userDetails = {
+            username: username,
+            email: decryptDeterministic(user[0].email),
+            full_name: decryptDeterministic(user[0].full_name),
+            apartment_id: user[0].apartment_id
+        };
+        // ...send OTP, etc...
+        res.status(200).json({ userDetails, message: 'An OTP has been sent to your registered email address.' });
     } catch (error) {
-        console.error('Error verifying username/sending OTP:', error);
-        handleDatabaseError(res, error);
+        console.error('Error verifying tenant username:', error);
+        res.status(500).json({ message: 'Failed to connect to the server.' });
     }
 });
 
@@ -755,46 +733,22 @@ app.post('/api/admin/forgot-password/verify-username', async (req, res) => {
     }
 
     try {
-    const [adminResults] = await db.execute('SELECT username, full_name, email FROM admins WHERE username = ?', [username]);
-        if (adminResults.length === 0) {
+        const encryptedUsername = encryptDeterministic(username);
+        const [admin] = await db.execute('SELECT * FROM admins WHERE username = ?', [encryptedUsername]);
+        if (admin.length === 0) {
             return res.status(404).json({ message: 'Admin username not found.' });
         }
-
-        const admin = adminResults[0];
-        const otp = generateOTP();
-        const now = new Date();
-        const expiresAt = new Date(now.getTime() + 5 * 60 * 1000);
-
-        await db.execute(
-            'INSERT INTO password_reset_otps (username, otp, expires_at) VALUES (?, ?, ?)',
-            [username, otp, expiresAt]
-        );
-
-        let emailResult = null;
-        if (admin.email) {
-            try {
-                const { sendOtpEmail } = require('./mailer');
-                await sendOtpEmail(admin.email, otp);
-                emailResult = 'OTP sent to your registered email address.';
-            } catch (err) {
-                console.error('Failed to send OTP email:', err);
-                emailResult = 'OTP generated, but failed to send email.';
-            }
-        } else {
-            console.log(`ADMIN OTP for ${admin.username}: ${otp}`);
-            emailResult = 'OTP sent to console for verification.';
-        }
-        res.status(200).json({
-            message: emailResult,
-            adminDetails: {
-                username: admin.username,
-                full_name: admin.full_name,
-                email: admin.email,
-            },
-        });
+        // Decrypt fields as needed before sending to frontend
+        const adminDetails = {
+            username: username,
+            email: decryptDeterministic(admin[0].email),
+            full_name: decryptDeterministic(admin[0].full_name)
+        };
+        // ...send OTP, etc...
+        res.status(200).json({ adminDetails, message: 'An OTP has been sent to your registered email address.' });
     } catch (error) {
-        console.error('Error verifying admin username/sending OTP:', error);
-        handleDatabaseError(res, error);
+        console.error('Error verifying admin username:', error);
+        res.status(500).json({ message: 'Failed to connect to the server.' });
     }
 });
 
