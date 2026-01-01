@@ -74,6 +74,11 @@ function decrypt(text) {
     return decrypted;
 }
 
+// Helper to check if a string is valid hex and of even length
+function isHex(str) {
+    return typeof str === 'string' && /^[0-9a-fA-F]+$/.test(str) && str.length % 2 === 0;
+}
+
 // --- ROUTES ---
 // Get all complaints for a specific tenant (for EditComplaints and ComplaintStatus)
 app.get('/api/tenant/complaints', async (req, res) => {
@@ -222,11 +227,12 @@ app.post('/api/tenant/forgot-password/verify-username', async (req, res) => {
         if (user.length === 0) {
             return res.status(404).json({ message: 'Username not found.' });
         }
-        // Decrypt fields as needed before sending to frontend
+        // Only decrypt if value is valid hex
+        const decryptSafe = (val) => (isHex(val) ? decryptDeterministic(val) : val);
         const userDetails = {
             username: username,
-            email: decryptDeterministic(user[0].email),
-            full_name: decryptDeterministic(user[0].full_name),
+            email: decryptSafe(user[0].email),
+            full_name: decryptSafe(user[0].full_name),
             apartment_id: user[0].apartment_id
         };
         // ...send OTP, etc...
@@ -738,11 +744,12 @@ app.post('/api/admin/forgot-password/verify-username', async (req, res) => {
         if (admin.length === 0) {
             return res.status(404).json({ message: 'Admin username not found.' });
         }
-        // Decrypt fields as needed before sending to frontend
+        // Only decrypt if value is valid hex
+        const decryptSafe = (val) => (isHex(val) ? decryptDeterministic(val) : val);
         const adminDetails = {
             username: username,
-            email: decryptDeterministic(admin[0].email),
-            full_name: decryptDeterministic(admin[0].full_name)
+            email: decryptSafe(admin[0].email),
+            full_name: decryptSafe(admin[0].full_name)
         };
         // ...send OTP, etc...
         res.status(200).json({ adminDetails, message: 'An OTP has been sent to your registered email address.' });
