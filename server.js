@@ -266,18 +266,56 @@ app.post('/api/tenant/forgot-password/verify-otp', async (req, res) => {
     }
 
     try {
+        const encryptedUsername = encryptDeterministic(username);
         const [otpResults] = await db.execute(
-            'SELECT * FROM password_reset_otps WHERE username = ? AND otp = ? AND expires_at > NOW()',
-            [username, otp]
+            'SELECT * FROM password_reset_otps WHERE username = ? AND otp = ? AND expires_at > NOW() AND is_verified = 0',
+            [encryptedUsername, otp]
         );
 
         if (otpResults.length === 0) {
             return res.status(400).json({ message: 'Invalid or expired OTP' });
         }
 
+        // Mark OTP as used
+        await db.execute(
+            'UPDATE password_reset_otps SET is_verified = 1 WHERE username = ? AND otp = ?',
+            [encryptedUsername, otp]
+        );
+
         res.status(200).json({ message: 'OTP verified successfully' });
     } catch (error) {
         console.error('Error verifying OTP:', error);
+        handleDatabaseError(res, error);
+    }
+});
+
+app.post('/api/admin/forgot-password/verify-otp', async (req, res) => {
+    const { username, otp } = req.body;
+
+    if (!username || !otp) {
+        return res.status(400).json({ message: 'Username and OTP are required.' });
+    }
+
+    try {
+        const encryptedUsername = encryptDeterministic(username);
+        const [otpResults] = await db.execute(
+            'SELECT * FROM password_reset_otps WHERE username = ? AND otp = ? AND expires_at > NOW() AND is_verified = 0',
+            [encryptedUsername, otp]
+        );
+
+        if (otpResults.length === 0) {
+            return res.status(400).json({ message: 'Invalid or expired OTP.' });
+        }
+
+        // Mark OTP as used
+        await db.execute(
+            'UPDATE password_reset_otps SET is_verified = 1 WHERE username = ? AND otp = ?',
+            [encryptedUsername, otp]
+        );
+
+        res.status(200).json({ message: 'OTP verified successfully.' });
+    } catch (error) {
+        console.error('Error verifying admin OTP:', error);
         handleDatabaseError(res, error);
     }
 });
@@ -796,16 +834,23 @@ app.post('/api/admin/forgot-password/verify-otp', async (req, res) => {
     }
 
     try {
+        const encryptedUsername = encryptDeterministic(username);
         const [otpResults] = await db.execute(
-            'SELECT * FROM password_reset_otps WHERE username = ? AND otp = ? AND expires_at > NOW()',
-            [username, otp]
+            'SELECT * FROM password_reset_otps WHERE username = ? AND otp = ? AND expires_at > NOW() AND is_verified = 0',
+            [encryptedUsername, otp]
         );
 
         if (otpResults.length === 0) {
-            return res.status(400).json({ message: 'Invalid or expired OTP.' });
+            return res.status(400).json({ message: 'Invalid or expired OTP' });
         }
 
-        res.status(200).json({ message: 'OTP verified successfully.' });
+        // Mark OTP as used
+        await db.execute(
+            'UPDATE password_reset_otps SET is_verified = 1 WHERE username = ? AND otp = ?',
+            [encryptedUsername, otp]
+        );
+
+        res.status(200).json({ message: 'OTP verified successfully' });
     } catch (error) {
         console.error('Error verifying admin OTP:', error);
         handleDatabaseError(res, error);
