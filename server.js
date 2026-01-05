@@ -1255,27 +1255,34 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
   }
 });
 
-// Replace your current GET /api/available-units with this:
 app.get('/api/available-units', async (req, res) => {
   try {
-    const [units] = await db.query(
-      `SELECT u.*, 
-        (SELECT image_data FROM unit_images WHERE unit_id = u.unit_id LIMIT 1) AS image_data,
-        (SELECT image_type FROM unit_images WHERE unit_id = u.unit_id LIMIT 1) AS image_type
-       FROM available_units u
-       WHERE u.hidden = 0
-       ORDER BY u.created_at DESC`
-    );
-    // Convert image_data to base64
-    const result = units.map(u => ({
-      ...u,
-      images: u.image_data
-        ? [{ dataUri: `data:${u.image_type};base64,${u.image_data.toString('base64')}` }]
-        : []
+    // Fetch all units
+    const [units] = await db.execute('SELECT * FROM available_units WHERE is_hidden = 0 ORDER BY created_at DESC');
+
+    // For each unit, fetch its images
+    const unitsWithImages = await Promise.all(units.map(async (unit) => {
+      // Fetch all images for this unit
+      const [images] = await db.execute(
+        'SELECT image_data, image_type FROM unit_images WHERE unit_id = ? ORDER BY image_id ASC',
+        [unit.unit_id]
+      );
+
+      // Convert each image to a data URI
+      const imagesArray = images.map(img => ({
+        dataUri: `data:${img.image_type};base64,${Buffer.from(img.image_data).toString('base64')}`
+      }));
+
+      return {
+        ...unit,
+        images: imagesArray
+      };
     }));
-    res.json(result);
+
+    res.json(unitsWithImages);
   } catch (err) {
-    handleDatabaseError(res, err);
+    console.error('Error fetching available units:', err);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
