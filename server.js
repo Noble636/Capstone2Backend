@@ -1257,22 +1257,20 @@ app.post('/api/admin/available-units', upload.array('images', 5), async (req, re
 
 app.get('/api/available-units', async (req, res) => {
   try {
-    // Fetch all units
-    const [units] = await db.execute('SELECT * FROM available_units WHERE is_hidden = 0 ORDER BY created_at DESC');
+    // Get all available units
+    const [units] = await db.query(
+      `SELECT * FROM available_units WHERE hidden = 0 ORDER BY created_at DESC`
+    );
 
-    // For each unit, fetch its images
+    // For each unit, get all images
     const unitsWithImages = await Promise.all(units.map(async (unit) => {
-      // Fetch all images for this unit
-      const [images] = await db.execute(
+      const [images] = await db.query(
         'SELECT image_data, image_type FROM unit_images WHERE unit_id = ? ORDER BY image_id ASC',
         [unit.unit_id]
       );
-
-      // Convert each image to a data URI
       const imagesArray = images.map(img => ({
-        dataUri: `data:${img.image_type};base64,${Buffer.from(img.image_data).toString('base64')}`
+        dataUri: `data:${img.image_type};base64,${img.image_data.toString('base64')}`
       }));
-
       return {
         ...unit,
         images: imagesArray
